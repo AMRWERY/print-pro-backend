@@ -41,11 +41,8 @@ let customerToken = "";
 
 before(async () => {
   const { createApp } = await import("../src/app");
-  const { ensureAdmin } = await import("../src/routes/auth");
-  const { seedIfEmpty } = await import("../src/db/seed");
-  const { config } = await import("../src/config");
-  await ensureAdmin(config.seedAdmin.email, config.seedAdmin.password);
-  await seedIfEmpty();
+  const { boot } = await import("../src/boot");
+  await boot();
   await new Promise<void>((resolve) => {
     server = createApp().listen(0, () => resolve());
   });
@@ -54,9 +51,13 @@ before(async () => {
 
 after(async () => {
   server.close();
-  const { db } = await import("../src/db");
-  db.close();
-  rmSync(dir, { recursive: true, force: true });
+  const { closeDb } = await import("../src/db");
+  closeDb();
+  try {
+    rmSync(dir, { recursive: true, force: true });
+  } catch {
+    // Windows can keep the file locked for a moment; the OS cleans the temp folder later.
+  }
 });
 
 describe("auth", () => {
@@ -240,13 +241,11 @@ describe("hardening", () => {
     assert.deepEqual(Object.keys(a.body).sort(), Object.keys(b.body).sort());
   });
 
-  it("keeps admin data after a restart", async () => {
-    const { syncAll } = await import("../src/db/persist");
-    syncAll();
-    const { db } = await import("../src/db");
-    const n = (db.prepare("SELECT COUNT(*) AS n FROM docs WHERE collection = 'products'").get() as { n: number }).n;
-    assert.ok(n >= 4812);
-    const o = (db.prepare("SELECT COUNT(*) AS n FROM docs WHERE collection = 'storefront-orders'").get() as { n: number }).n;
-    assert.ok(o >= 3);
+  it("has stored its data in the database", async () => {
+    const { get } = await import("../src/db");
+    const count = async (c: string) =>
+      (await get<{ n: number }>("SELECT COUNT(*) AS n FROM docs WHERE collection = ? AND deleted = 0", [c]))!.n;
+    assert.ok((await count("products")) >= 4812);
+    assert.ok((await count("storefront-orders")) >= 3);
   });
 });

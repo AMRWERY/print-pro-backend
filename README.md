@@ -1,7 +1,7 @@
 # PrintPro API
 
 One Node.js + Express 5 + TypeScript backend for both the storefront (`../user`) and the admin dashboard (`../admin`).
-Data is stored in SQLite (Node's built-in `node:sqlite`, no native modules) and survives restarts.
+Data is stored in a libSQL database: a local SQLite file in development, a hosted Turso database in production. It survives restarts and is shared by every running instance.
 
 ## Run
 
@@ -12,10 +12,12 @@ cp .env.example .env     # first time; edit the secrets
 npm run dev              # http://localhost:4000, auto-restarts on change
 npm test                 # end-to-end tests over real HTTP
 npm run typecheck
-npm run seed             # deletes the database; the next start re-seeds it
+npm run seed             # opens the database and stores the demo data if it was never stored
+                         # (npm run seed -- --reset deletes a LOCAL database file first)
+npm run build:vercel     # bundles the API into .vercel/output for Vercel
 ```
 
-Requires Node 24+. On first start it creates the admin account from `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`
+Requires Node 20+ (24 recommended). On first start it creates the admin account from `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`
 (quote the password in `.env` if it contains `#`) and seeds the demo catalog, orders, customers and so on.
 
 Production: set `NODE_ENV=production`, a `JWT_SECRET` of 32+ characters, a private `SEED_ADMIN_PASSWORD`, and `CORS_ORIGINS`.
@@ -88,11 +90,37 @@ Same paths, methods and response shapes the admin app already used:
 
 ## How data is stored
 
-Domain logic keeps its working state in memory (loaded from SQLite at boot) and every successful write request is
-flushed to SQLite before the response is sent, only the records that changed. This is fast and simple, and it means
-**one API process must own the database**. Moving to several instances needs those modules moved onto direct SQL.
+Domain logic keeps its working state in memory, loaded from the database when an instance starts. Every successful write
+request is flushed to the database as one versioned batch before the response is sent, and only the records that changed are
+written. Each request first checks the database version; if another instance has written since, it pulls just those
+records. So several instances (serverless functions) stay in step. Requests run one at a time per instance.
+
+Two instances changing the **same record at the same instant** resolve as last write wins. Two instances **creating** a
+counter-numbered record at the same instant: one write is rejected with a 500 "Could not save your change. Try again."
+and the retry succeeds.
+
+## Deploying on Vercel (free)
+
+1. **Database.** Create a free Turso database (turso.tech) in the region closest to Vercel's default function region
+   (Washington D.C.). Copy its URL (`libsql://...`) and create an auth token.
+2. **Seed it once from your PC**, so the first request on Vercel doesn't have to:
+   ```powershell
+   cd api
+   $env:DB_URL="libsql://YOUR-DB.turso.io"; $env:DB_AUTH_TOKEN="YOUR-TOKEN"
+   $env:SEED_ADMIN_EMAIL="you@example.com"; $env:SEED_ADMIN_PASSWORD="your private password"
+   npm run seed
+   ```
+3. **Vercel project.** Import the API repo. Framework preset **Other**; Root Directory is the folder holding
+   `package.json` and `vercel.json`. The build command comes from `vercel.json` (`npm run build:vercel`).
+4. **Environment variables** (Production): `JWT_SECRET` (32+ random characters), `SEED_ADMIN_EMAIL`,
+   `SEED_ADMIN_PASSWORD` (same values as step 2), `DB_URL`, `DB_AUTH_TOKEN`, `TRUST_PROXY=1`.
+5. Deploy, open `https://<project>.vercel.app/api/health` (expect `{"ok":true}`), then `/api/catalog`.
+6. Point the admin and storefront apps at it: `NUXT_API_BASE=https://<project>.vercel.app`.
 
 ## Known limits
+
+- On serverless hosts the sign-in lockout and rate limits live in each instance's memory, so they are weaker than on one server.
+- The first request after a quiet period loads the data again (about 2 s plus database latency).
 
 - No payment gateway or email service is connected. Orders start unpaid; an admin moves them along. Password reset tokens are logged.
 - `dashboard`, `analytics` and `revenue` serve the seeded demo numbers; they are not computed from live orders yet.

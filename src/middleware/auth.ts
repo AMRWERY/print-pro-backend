@@ -1,7 +1,7 @@
 import type { RequestHandler } from "express";
 import jwt from "jsonwebtoken";
 import { config } from "../config";
-import { db } from "../db";
+import { get } from "../db";
 import { httpError } from "../lib/http";
 
 export type Role = "admin" | "customer";
@@ -24,16 +24,15 @@ export const signToken = (u: AuthUser) =>
     algorithm: "HS256",
   });
 
-const findUser = db.prepare("SELECT id, email, role FROM users WHERE id = ?");
 
 /** Attaches `req.user` when a valid Bearer token is present. The user is re-read, so deleted accounts lose access at once. */
-export const authenticate: RequestHandler = (req, _res, next) => {
+export const authenticate: RequestHandler = async (req, _res, next) => {
   const header = req.headers.authorization;
   if (header?.startsWith("Bearer ")) {
     try {
       const payload = jwt.verify(header.slice(7), config.jwtSecret, { algorithms: ["HS256"] });
       const id = typeof payload === "object" ? payload.sub : undefined;
-      const row = id ? (findUser.get(id) as AuthUser | undefined) : undefined;
+      const row = id ? await get<AuthUser>("SELECT id, email, role FROM users WHERE id = ?", [id]) : undefined;
       if (row) req.user = row;
     } catch {
       // invalid or expired token: treated as signed out

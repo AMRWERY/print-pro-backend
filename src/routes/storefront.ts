@@ -2,7 +2,7 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { config } from "../config";
-import { db } from "../db";
+import { get } from "../db";
 import { handler, httpError, param } from "../lib/http";
 import { requireAuth } from "../middleware/auth";
 import { findSellable, listCatalog } from "../storefront/catalog";
@@ -57,17 +57,17 @@ storefrontRouter.post(
 storefrontRouter.post(
   "/orders",
   limiter(30),
-  handler((req, res) => {
+  handler(async (req, res) => {
     const body = orderBody.safeParse(req.body);
     if (!body.success) throw httpError(400, body.error.issues[0]?.message ?? "Invalid order");
-    const user = req.user?.role === "customer" ? { id: req.user.id, tier: tierOf(req.user.id) } : undefined;
+    const user = req.user?.role === "customer" ? { id: req.user.id, tier: await tierOf(req.user.id) } : undefined;
     const order = placeOrder(body.data, user);
     res.status(201);
     return order;
   }),
 );
 
-const tierOf = (userId: string) => (db.prepare("SELECT tier FROM users WHERE id = ?").get(userId) as { tier: string } | undefined)?.tier;
+const tierOf = async (userId: string) => (await get<{ tier: string }>("SELECT tier FROM users WHERE id = ?", [userId]))?.tier;
 
 // A signed-in owner sees their order; anyone else needs the PIN from the confirmation. A wrong id and a wrong PIN look the same.
 storefrontRouter.get(
