@@ -39,7 +39,7 @@ const result = await build({
 
 writeFileSync(
   join(fn, ".vc-config.json"),
-  JSON.stringify({ runtime: "nodejs22.x", handler: "index.js", launcherType: "Nodejs", shouldAddHelpers: false, supportsResponseStreaming: true }, null, 2),
+  JSON.stringify({ runtime: "nodejs22.x", handler: "index.js", launcherType: "Nodejs", shouldAddHelpers: false, supportsResponseStreaming: true, regions: ["iad1"] }, null, 2),
 );
 // The bundle is CommonJS; say so, whatever package.json sits above it.
 writeFileSync(join(fn, "package.json"), JSON.stringify({ type: "commonjs" }));
