@@ -245,7 +245,7 @@ describe("hardening", () => {
     const { get } = await import("../src/db");
     const count = async (c: string) =>
       (await get<{ n: number }>("SELECT COUNT(*) AS n FROM docs WHERE collection = ? AND deleted = 0", [c]))!.n;
-    assert.ok((await count("products")) >= 4812);
+    assert.ok((await count("products")) >= 31);
     assert.ok((await count("storefront-orders")) >= 3);
   });
 });

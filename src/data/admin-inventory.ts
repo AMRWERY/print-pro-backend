@@ -98,24 +98,7 @@ const entryFor = (
   at: when ?? new Date(DEMO_NOW + ++clock.value * 60_000).toISOString(),
 });
 
-// Seeded history, oldest first so the newest ends up on top.
-const seedHistory = (): Movement[] => {
-  const by = (id: string) => findProduct(id);
-  const entries: [string, MovementType, number | null, string, number][] = [
-    ["p-5", "testing", -1, "Moved to the test bay for a print-quality check", 30],
-    ["p-2", "dispatch", -1, "Dispatched by courier to Delta Architects, Cairo", 21],
-    ["p-3", "inbound", 10, "Received from the supplier delivery note. Lot CX-2026-C9", 3.5],
-    ["p-1", "allocation", -2, "Allocated to order #LP-948201", 0.8],
-  ];
-  const out: Movement[] = [];
-  for (const [id, type, qty, note, hoursAgo] of entries) {
-    const p = by(id);
-    if (p) out.unshift(entryFor(type, qty, p, note, at(hoursAgo)));
-  }
-  return out;
-};
-
-const movements = persistentList<Movement>("inventory-movements", seedHistory);
+const movements = persistentList<Movement>("inventory-movements", () => []);
 
 const record = (type: MovementType, qty: number | null, p: Product, note: string, when?: string) => {
   movements.unshift(entryFor(type, qty, p, note, when));

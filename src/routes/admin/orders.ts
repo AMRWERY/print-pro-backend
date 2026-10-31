@@ -24,8 +24,10 @@ ordersRouter.post(
   handler((req, res) => {
     const input = validateCreateOrder(req.body);
     if (!input) throw httpError(400, "Invalid order");
+    const order = createOrder(input);
+    if (!order) throw httpError(404, "Customer or product not found");
     res.status(201);
-    return createOrder(input);
+    return order;
   }),
 );
 

@@ -74,8 +74,8 @@ export interface OrdersResponse {
 }
 
 export interface CreateOrderInput {
-  customerId: number;
-  productId: number;
+  customerId: string;
+  productId: string;
   quantity: number;
   priority: OrderPriority;
 }

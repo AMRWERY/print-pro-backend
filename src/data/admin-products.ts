@@ -25,7 +25,7 @@ import { categoryMeta, stockStateOf } from "~/data/product-meta";
 import { buildVariants } from "~/utils/product-variants";
 import { persistentList, persistentValue } from "~/db/persist";
 
-// Demo catalog for the products screen, seeded on first run. Products, editor extras, revisions
+// Base catalog for the products screen, seeded on first run (one record per storefront SKU). Products, editor extras, revisions
 // and the id counter are persisted in SQLite (see ~/db/persist).
 
 const templates: Template[] = [
@@ -83,54 +83,31 @@ const seeds: { t: number; stock: number }[] = [
     .filter((s) => !featured.some((f) => f.t === s.t)),
 ];
 
-const VARIANTS = ["Starter pack", "Office bundle", "Refurbished", "Demo unit", "Bulk pack", "Service bundle", "Reseller pack"];
-const TOTAL = 4812;
-
 const eanOf = (n: number) => `7${String(332700000000 + n * 7919).padStart(12, "0")}`;
 
-const make = (n: number, t: Template, stock: number, variant: number): Product => {
-  const code = (1000 + n).toString(36).toUpperCase();
-  const suffix = variant ? ` · ${VARIANTS[variant % VARIANTS.length]} ${variant}` : "";
+const make = (n: number, t: Template, stock: number): Product => {
   return {
     id: `p-${n}`,
-    sku: variant ? `${t.prefix}-${code}` : t.prefix,
+    sku: t.prefix,
     ean: eanOf(n),
-    name: `${t.name}${suffix}`,
+    name: t.name,
     tag: t.tag,
     spec: t.spec,
     serial: `${t.serialKind}: ${t.prefix}-${String(100000 + n * 37).slice(-6)}`,
     category: t.category,
     brand: t.brand,
-    // Variants are kits and accessories, priced as a small fraction of the flagship item.
-    price: variant ? Math.max(5, Math.round(t.price * (0.008 + (variant % 5) * 0.004))) : t.price,
+    price: t.price,
     stock,
     min: t.min,
     unit: t.unit,
-    // Exactly 14 in testing and 3 on hold across the register; a few drafts.
-    status:
-      n % 343 === 5 + seeds.length && n >= seeds.length
-        ? "testing"
-        : n % 1601 === 9 + seeds.length && n >= seeds.length
-          ? "hold"
-          : n >= seeds.length && n % 97 === 50
-            ? "draft"
-            : "active",
+    status: "active",
     icon: categoryMeta[t.category].icon,
   };
 };
 
-const store = persistentList<Product>("products", () => [
-  ...seeds.map((s, n) => make(n, templates[s.t]!, s.stock, 0)),
-  ...Array.from({ length: TOTAL - seeds.length }, (_, k) => {
-    const n = seeds.length + k;
-    const t = templates[k % templates.length]!;
-    // Two more depleted SKUs (7 critical in total with the seeds); the rest are comfortably stocked.
-    const stock = k === 900 ? 0 : k === 2500 ? t.min : t.min * (2 + (k % 5)) + 1 + (k % 3);
-    return make(n, t, stock, Math.floor(k / templates.length) + 1);
-  }),
-]);
+const store = persistentList<Product>("products", () => seeds.map((s, n) => make(n, templates[s.t]!, s.stock)));
 
-const seq = persistentValue("products.seq", () => TOTAL);
+const seq = persistentValue("products.seq", () => seeds.length);
 
 export const productBrands = () => [...new Set(store.map((p) => p.brand))].sort();
 
@@ -190,7 +167,7 @@ export const queryProducts = (query: ProductsQuery): ProductsResponse => {
     brands: productBrands(),
     kpis: {
       registered: store.length,
-      indexedThisCycle: 18,
+      indexedThisCycle: Math.max(0, seq.value - seeds.length),
       valuation: Math.round(store.reduce((sum, p) => sum + p.price * p.stock, 0)),
       depleted,
       testing: store.filter((p) => p.status === "testing").length,
