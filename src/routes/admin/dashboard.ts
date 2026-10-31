@@ -7,7 +7,7 @@ export const dashboardRouter = Router();
 
 dashboardRouter.get(
   "/dashboard",
-  handler(() => dashboardSummary),
+  handler(() => dashboardSummary()),
 );
 
 dashboardRouter.get(

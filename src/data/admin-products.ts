@@ -18,96 +18,20 @@ import type {
   ProductStatus,
   ProductsQuery,
   ProductsResponse,
-  StockFilter,
-  Template
+  StockFilter
 } from "~/types/admin/products";
 import { categoryMeta, stockStateOf } from "~/data/product-meta";
 import { buildVariants } from "~/utils/product-variants";
 import { persistentList, persistentValue } from "~/db/persist";
 
-// Base catalog for the products screen, seeded on first run (one record per storefront SKU). Products, editor extras, revisions
+// The product register: starts empty, filled from the admin Products screen. Products, editor extras, revisions
 // and the id counter are persisted in SQLite (see ~/db/persist).
-
-const templates: Template[] = [
-  { prefix: "PP-PR-0300", name: "Printa Home 300 Wireless Inkjet", tag: "WI-FI", spec: "A4 colour inkjet · Wi-Fi · USB", serialKind: "S/N", category: "printers", brand: "Printa", price: 3200, unit: "unit", min: 6 },
-  { prefix: "PP-PR-0120", name: "Printa Mini Portable Inkjet", tag: "PORTABLE", spec: "Battery-powered A4 inkjet · Wi-Fi", serialKind: "S/N", category: "printers", brand: "Printa", price: 2400, unit: "unit", min: 5 },
-  { prefix: "PP-PR-0500", name: "Printa Tank 500 Ink-Tank All-Colour", tag: "INK TANK", spec: "A4 ink-tank colour · automatic duplex", serialKind: "S/N", category: "printers", brand: "Printa", price: 5400, unit: "unit", min: 6 },
-  { prefix: "PP-CX-0210", name: "Corex Laser 210 Mono", tag: "30 PPM", spec: "A4 mono laser · automatic duplex", serialKind: "S/N", category: "printers", brand: "Corex", price: 6800, unit: "unit", min: 5 },
-  { prefix: "PP-CX-0450", name: "Corex Laser 450 Colour", tag: "COLOUR LASER", spec: "A4 colour laser · 28 ppm · duplex", serialKind: "S/N", category: "printers", brand: "Corex", price: 14900, unit: "unit", min: 3 },
-  { prefix: "PP-CX-0700", name: "Corex Laser 700 A3 Mono", tag: "A3", spec: "A3 mono laser · 40 ppm · duplex", serialKind: "S/N", category: "printers", brand: "Corex", price: 27400, unit: "unit", min: 2 },
-  { prefix: "PP-NJ-0A3", name: "Nordjet Pro A3 Colour Inkjet", tag: "A3", spec: "A3 pigment inkjet · Ethernet", serialKind: "S/N", category: "printers", brand: "Nordjet", price: 18500, unit: "unit", min: 2 },
-  { prefix: "PP-VX-0A3", name: "Vantix Colour Laser A3 Workgroup", tag: "WORKGROUP", spec: "A3 colour laser · 35 ppm · duplex", serialKind: "S/N", category: "printers", brand: "Vantix", price: 39900, unit: "unit", min: 2 },
-  { prefix: "PP-NJ-LF24", name: "Nordjet Large-Format 24\" Plotter", tag: "24-INCH", spec: "24\" roll plotter · A1 drawings", serialKind: "S/N", category: "printers", brand: "Nordjet", price: 38900, unit: "unit", min: 2 },
-  { prefix: "PP-NJ-LF44", name: "Nordjet Large-Format 44\" CAD & Poster", tag: "44-INCH", spec: "44\" roll wide-format · A0 posters", serialKind: "S/N", category: "printers", brand: "Nordjet", price: 82500, unit: "unit", min: 1 },
-  { prefix: "PP-KP-0020", name: "Kopira Office 20 A4 Mono MFP", tag: "20 PPM", spec: "A4 mono MFP · copy, print, scan", serialKind: "S/N", category: "copiers", brand: "Kopira", price: 12500, unit: "unit", min: 3 },
-  { prefix: "PP-KP-0035", name: "Kopira Office 35 A4 Mono MFP", tag: "35 PPM", spec: "A4 mono MFP · copy, print, scan, fax", serialKind: "S/N", category: "copiers", brand: "Kopira", price: 18900, unit: "unit", min: 3 },
-  { prefix: "PP-KP-028C", name: "Kopira Office 28 A4 Colour MFP", tag: "COLOUR MFP", spec: "A4 colour MFP · fax · duplex", serialKind: "S/N", category: "copiers", brand: "Kopira", price: 24900, unit: "unit", min: 2 },
-  { prefix: "PP-KP-A325", name: "Kopira Pro A3 25 ppm Mono", tag: "A3", spec: "A3 mono copier · cabinet included", serialKind: "S/N", category: "copiers", brand: "Kopira", price: 41500, unit: "unit", min: 2 },
-  { prefix: "PP-KP-A335", name: "Kopira Pro A3 35 ppm Mono", tag: "A3", spec: "A3 mono copier · finisher ready", serialKind: "S/N", category: "copiers", brand: "Kopira", price: 58900, unit: "unit", min: 2 },
-  { prefix: "PP-KP-A33C", name: "Kopira Pro A3 30 ppm Colour", tag: "A3 COLOUR", spec: "A3 colour copier · touchscreen", serialKind: "S/N", category: "copiers", brand: "Kopira", price: 76400, unit: "unit", min: 1 },
-  { prefix: "PP-KP-A34C", name: "Kopira Pro A3 45 ppm Colour", tag: "A3 COLOUR", spec: "A3 colour copier · booklet finisher", serialKind: "S/N", category: "copiers", brand: "Kopira", price: 118000, unit: "unit", min: 1 },
-  { prefix: "PP-VX-P060", name: "Vantix Production 60 ppm Mono", tag: "PRODUCTION", spec: "A3 mono production copier", serialKind: "S/N", category: "copiers", brand: "Vantix", price: 195000, unit: "unit", min: 1 },
-  { prefix: "PP-VX-P75C", name: "Vantix Production 75 ppm Colour", tag: "PRODUCTION", spec: "A3 colour production system", serialKind: "S/N", category: "copiers", brand: "Vantix", price: 289000, unit: "unit", min: 1 },
-  { prefix: "PP-IK-PB70", name: "Printa Tank Ink Black 70 ml", tag: "BLACK", spec: "Refill bottle · 4,500 pages", serialKind: "LOT", category: "inks-toner", brand: "Printa", price: 320, unit: "unit", min: 40 },
-  { prefix: "PP-IK-PC3", name: "Printa Tank Ink Colour Set (C/M/Y)", tag: "C/M/Y", spec: "3 × 70 ml refill set · 7,000 pages", serialKind: "LOT", category: "inks-toner", brand: "Printa", price: 780, unit: "pack", min: 30 },
-  { prefix: "PP-IK-NP8", name: "Nordjet Pigment Ink 8-Colour Set 130 ml", tag: "8-COLOUR", spec: "8 × 130 ml pigment set", serialKind: "LOT", category: "inks-toner", brand: "Nordjet", price: 4900, unit: "pack", min: 8 },
-  { prefix: "PP-IK-NLC", name: "Nordjet LF Ink Cartridge Cyan 300 ml", tag: "CYAN", spec: "Large-format cartridge · 300 ml", serialKind: "LOT", category: "inks-toner", brand: "Nordjet", price: 1450, unit: "unit", min: 12 },
-  { prefix: "PP-IK-NLK", name: "Nordjet LF Ink Cartridge Black 300 ml", tag: "BLACK", spec: "Large-format cartridge · 300 ml", serialKind: "LOT", category: "inks-toner", brand: "Nordjet", price: 1450, unit: "unit", min: 12 },
-  { prefix: "PP-TN-C210", name: "Corex Toner Black 210 (2,000 pages)", tag: "STANDARD", spec: "Black toner · 2,000 pages", serialKind: "LOT", category: "inks-toner", brand: "Corex", price: 950, unit: "unit", min: 30 },
-  { prefix: "PP-TN-C21H", name: "Corex Toner Black 210 High-Yield (6,000 pages)", tag: "HIGH-YIELD", spec: "Black toner · 6,000 pages", serialKind: "LOT", category: "inks-toner", brand: "Corex", price: 2100, unit: "unit", min: 25 },
-  { prefix: "PP-TN-C45S", name: "Corex Toner Colour Set 450 (C/M/Y/K)", tag: "4-COLOUR", spec: "C/M/Y/K toner set · 3,000 pages each", serialKind: "LOT", category: "inks-toner", brand: "Corex", price: 5200, unit: "pack", min: 10 },
-  { prefix: "PP-TN-KAB", name: "Kopira Toner Black A3 Series", tag: "A3 SERIES", spec: "Black toner · 30,000 pages", serialKind: "LOT", category: "inks-toner", brand: "Kopira", price: 2800, unit: "unit", min: 12 },
-  { prefix: "PP-TN-KAC", name: "Kopira Toner Colour Set A3 Series", tag: "A3 COLOUR", spec: "C/M/Y toner set · 20,000 pages each", serialKind: "LOT", category: "inks-toner", brand: "Kopira", price: 7900, unit: "pack", min: 8 },
-  { prefix: "PP-DR-KA3", name: "Kopira Drum Unit A3 Series", tag: "DRUM", spec: "Imaging drum · 100,000 pages", serialKind: "LOT", category: "inks-toner", brand: "Kopira", price: 6400, unit: "unit", min: 6 },
-  { prefix: "PP-TN-VPB", name: "Vantix Production Toner Black", tag: "PRODUCTION", spec: "Black toner · 80,000 pages", serialKind: "LOT", category: "inks-toner", brand: "Vantix", price: 5600, unit: "unit", min: 6 },
-];
-
-// The first screen of the register is hand-picked so low-stock states are visible at once.
-const featured: { t: number; stock: number }[] = [
-  { t: 2, stock: 9 },
-  { t: 3, stock: 3 },
-  { t: 14, stock: 4 },
-  { t: 19, stock: 22 },
-  { t: 25, stock: 10 },
-  { t: 27, stock: 0 },
-  { t: 21, stock: 0 },
-  { t: 24, stock: 64 },
-];
-
-// Every template also gets one flagship record whose SKU is exactly the storefront SKU, so
-// each product the storefront sells is editable here (see storefront/catalog.ts).
-const seeds: { t: number; stock: number }[] = [
-  ...featured,
-  ...templates
-    .map((t, i) => ({ t: i, stock: t.min * 3 + 1 }))
-    .filter((s) => !featured.some((f) => f.t === s.t)),
-];
 
 const eanOf = (n: number) => `7${String(332700000000 + n * 7919).padStart(12, "0")}`;
 
-const make = (n: number, t: Template, stock: number): Product => {
-  return {
-    id: `p-${n}`,
-    sku: t.prefix,
-    ean: eanOf(n),
-    name: t.name,
-    tag: t.tag,
-    spec: t.spec,
-    serial: `${t.serialKind}: ${t.prefix}-${String(100000 + n * 37).slice(-6)}`,
-    category: t.category,
-    brand: t.brand,
-    price: t.price,
-    stock,
-    min: t.min,
-    unit: t.unit,
-    status: "active",
-    icon: categoryMeta[t.category].icon,
-  };
-};
+const store = persistentList<Product>("products", () => []);
 
-const store = persistentList<Product>("products", () => seeds.map((s, n) => make(n, templates[s.t]!, s.stock)));
-
-const seq = persistentValue("products.seq", () => seeds.length);
+const seq = persistentValue("products.seq", () => 0);
 
 export const productBrands = () => [...new Set(store.map((p) => p.brand))].sort();
 
@@ -167,7 +91,7 @@ export const queryProducts = (query: ProductsQuery): ProductsResponse => {
     brands: productBrands(),
     kpis: {
       registered: store.length,
-      indexedThisCycle: Math.max(0, seq.value - seeds.length),
+      indexedThisCycle: seq.value,
       valuation: Math.round(store.reduce((sum, p) => sum + p.price * p.stock, 0)),
       depleted,
       testing: store.filter((p) => p.status === "testing").length,

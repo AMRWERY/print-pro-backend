@@ -8,7 +8,7 @@ import { httpError } from "~/lib/http";
 import type { OrderLine } from "~/types/admin/orders";
 import type { Order, OrderAmounts, OrderItem } from "~/types/order";
 import { findCatalogEntry, findSellable } from "./catalog";
-import { pricing, vouchers } from "./data/cart";
+import { pricing } from "./data/cart";
 import { deliveryOptions, deliveryPrices, paymentMethods } from "./data/checkout";
 import { getProductDetail } from "./data/product-details";
 
@@ -127,14 +127,8 @@ export const computeTotals = (lines: PricedLine[], voucherCode: string | undefin
   let couponId: string | undefined;
   const code = voucherCode?.trim().toUpperCase();
   if (code) {
-    const demo = Object.hasOwn(vouchers, code) ? vouchers[code] : undefined;
-    const coupon = demo ? undefined : redeemableCoupon(code);
-    if (demo) {
-      if (!demo.minSubtotal || subtotal >= demo.minSubtotal) {
-        voucher = round2(Math.min(demo.type === "flat" ? demo.amount : afterVolume * (demo.amount / 100), afterVolume));
-        voucherLabel = demo.label;
-      }
-    } else if (coupon && subtotal >= coupon.minOrder) {
+    const coupon = redeemableCoupon(code);
+    if (coupon && subtotal >= coupon.minOrder) {
       couponId = coupon.id;
       voucherLabel = coupon.campaign;
       if (coupon.type === "freight") freeShipping = true;

@@ -1,5 +1,8 @@
-import { allProducts } from "~/data/admin-products";
+import { allCustomers } from "~/data/admin-customers";
+import { allOrders, placedOrderOf } from "~/data/admin-orders";
+import { allProducts, savedExtras } from "~/data/admin-products";
 import { categoryMeta } from "~/data/product-meta";
+import type { OrderRow } from "~/types/admin/orders";
 import type {
   AnalyticsQuery,
   AnalyticsRange,
@@ -14,269 +17,251 @@ import type {
   TopProductRow,
   TopProductsResponse,
   VelocityStatus,
-  TopQuery
+  TopQuery,
 } from "~/types/admin/analytics";
-import type { ProductCategory } from "~/types/admin/products";
+import type { Product, ProductCategory } from "~/types/admin/products";
 
-// Demo analytics. Everything is derived from the chosen period, interval and cohort with fixed
-// formulas, so the same query always gives the same numbers. When the app has a backend this
-// file goes away and server/api/admin/analytics/* proxies the real reporting service.
+// Reporting over the real orders, products and customers. Figures the shop does not record
+// (visits, page views, conversion) are not invented: they stay at zero.
 
-/** The book has a fixed "today" so ranges are stable between reloads. */
-const TODAY = "2026-10-31";
+const today = () => new Date().toISOString().slice(0, 10);
 const DAY = 86_400_000;
+const HOUR = 3_600_000;
 const ts = (d: string) => Date.parse(`${d}T00:00:00Z`);
 const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
 const addDays = (d: string, n: number) => iso(ts(d) + n * DAY);
-const daysBetween = (from: string, to: string) =>
-  Math.round((ts(to) - ts(from)) / DAY) + 1;
+const daysBetween = (from: string, to: string) => Math.round((ts(to) - ts(from)) / DAY) + 1;
 
-const pick = <T extends string>(
-  value: unknown,
-  allowed: readonly T[],
-  fallback: T,
-): T =>
-  typeof value === "string" && (allowed as readonly string[]).includes(value)
-    ? (value as T)
-    : fallback;
+const pick = <T extends string>(value: unknown, allowed: readonly T[], fallback: T): T =>
+  typeof value === "string" && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
 
 const isDate = (v: unknown): v is string =>
-  typeof v === "string" &&
-  /^\d{4}-\d{2}-\d{2}$/.test(v) &&
-  !Number.isNaN(ts(v));
+  typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(ts(v));
 
-export const parseAnalyticsQuery = (
-  raw: Record<string, unknown>,
-): AnalyticsQuery => ({
-  range: pick<AnalyticsRange>(
-    raw.range,
-    ["today", "7d", "30d", "quarter", "ytd", "custom"],
-    "30d",
-  ),
-  from: isDate(raw.from) ? raw.from : addDays(TODAY, -30),
-  to: isDate(raw.to) ? raw.to : TODAY,
-  granularity: pick<Granularity>(
-    raw.granularity,
-    ["day", "week", "month"],
-    "week",
-  ),
-  cohort: pick<Cohort>(
-    raw.cohort,
-    ["all", "enterprise", "business", "printShop"],
-    "all",
-  ),
+export const parseAnalyticsQuery = (raw: Record<string, unknown>): AnalyticsQuery => ({
+  range: pick<AnalyticsRange>(raw.range, ["today", "7d", "30d", "quarter", "ytd", "custom"], "30d"),
+  from: isDate(raw.from) ? raw.from : addDays(today(), -30),
+  to: isDate(raw.to) ? raw.to : today(),
+  granularity: pick<Granularity>(raw.granularity, ["day", "week", "month"], "week"),
+  cohort: pick<Cohort>(raw.cohort, ["all", "enterprise", "business", "printShop"], "all"),
 });
 
 /** Turns a range choice into concrete dates. A custom range is put in order and kept to a year. */
-export const resolveRange = (
-  q: Pick<AnalyticsQuery, "range" | "from" | "to">,
-) => {
+export const resolveRange = (q: Pick<AnalyticsQuery, "range" | "from" | "to">) => {
+  const now = today();
   let from: string;
-  let to: string = TODAY;
+  let to: string = now;
   switch (q.range) {
     case "today":
-      from = TODAY;
+      from = now;
       break;
     case "7d":
-      from = addDays(TODAY, -6);
+      from = addDays(now, -6);
       break;
     case "30d":
-      from = addDays(TODAY, -30);
+      from = addDays(now, -30);
       break;
-    case "quarter":
-      from = "2026-07-01";
-      to = "2026-09-30";
+    case "quarter": {
+      // The last full calendar quarter.
+      const y = Number(now.slice(0, 4));
+      const startMonth = Math.floor((Number(now.slice(5, 7)) - 1) / 3) * 3;
+      const qStart = Date.UTC(y, startMonth, 1);
+      from = iso(Date.UTC(y, startMonth - 3, 1));
+      to = iso(qStart - DAY);
       break;
+    }
     case "ytd":
-      from = "2026-01-01";
+      from = `${now.slice(0, 4)}-01-01`;
       break;
     default: {
       [from, to] = q.from <= q.to ? [q.from, q.to] : [q.to, q.from];
-      if (to > TODAY) to = TODAY;
+      if (to > now) to = now;
       if (from > to) from = to;
       if (daysBetween(from, to) > 366) from = addDays(to, -365);
     }
   }
   const days = daysBetween(from, to);
-  return {
-    from,
-    to,
-    days,
-    prevFrom: addDays(from, -days),
-    prevTo: addDays(from, -1),
-  };
+  return { from, to, days, prevFrom: addDays(from, -days), prevTo: addDays(from, -1) };
 };
 
-const COHORT_SHARE: Record<Cohort, number> = {
-  all: 1,
-  enterprise: 0.48,
-  business: 0.34,
-  printShop: 0.18,
-};
-const COHORT_AOV: Record<Cohort, number> = {
-  all: 1,
-  enterprise: 1.9,
-  business: 0.8,
-  printShop: 0.55,
-};
-
-const DAILY_BASE = 128_000;
-const AOV = 2086.13;
-
+const round1 = (n: number) => Math.round(n * 10) / 10;
 const round2 = (n: number) => Math.round(n * 100) / 100;
+/** Change against the period before, in percent; 0 when there was nothing to compare with. */
+const change = (now: number, before: number) => (before ? round1(((now - before) / before) * 100) : 0);
 
-const buildSeries = (
-  days: number,
-  from: string,
-  granularity: EffectiveGranularity,
-  factor: number,
-): TimePoint[] => {
+// --- What the orders say ---
+
+const isPaid = (o: OrderRow) => o.stage !== "awaitingPayment";
+const at = (o: OrderRow) => Date.parse(o.placedAt);
+const within = (rows: OrderRow[], from: number, to: number) => rows.filter((o) => at(o) >= from && at(o) < to);
+const total = (rows: OrderRow[]) => rows.reduce((s, o) => s + o.amount, 0);
+
+/** Profit on an order's lines, counting only products whose cost has been entered. */
+const marginOn = (o: OrderRow, products: Product[]) => {
+  let m = 0;
+  for (const l of placedOrderOf(o.id)?.lines ?? []) {
+    const p = products.find((x) => x.sku === l.sku);
+    const cost = p ? savedExtras(p.id)?.cost : null;
+    if (cost != null) m += l.total - cost * l.quantity;
+  }
+  return m;
+};
+
+const REGION_OF_NODE: Record<string, RegionRow["key"]> = {
+  cairo: "cairo",
+  giza: "cairo",
+  alexandria: "delta",
+  mansoura: "delta",
+  tanta: "delta",
+  riyadh: "gulf",
+  dubai: "gulf",
+  jeddah: "gulf",
+  doha: "gulf",
+  "kuwait city": "gulf",
+  amman: "levant",
+  luxor: "levant",
+};
+const REGION_KEYS: RegionRow["key"][] = ["cairo", "delta", "gulf", "levant"];
+
+export const buildAnalytics = (query: AnalyticsQuery): AnalyticsResponse => {
+  const period = resolveRange(query);
+  const products = allProducts();
+  const customers = allCustomers();
+
+  const everyOrder = allOrders();
+  const scoped = query.cohort === "all" ? everyOrder : everyOrder.filter((o) => o.customer.tier === query.cohort);
+
+  const from = ts(period.from);
+  const to = ts(period.to) + DAY;
+  const prevFrom = ts(period.prevFrom);
+  const orders = within(scoped, from, to);
+  const prevOrders = within(scoped, prevFrom, from);
+  const paid = orders.filter(isPaid);
+  const prevPaid = prevOrders.filter(isPaid);
+
+  // One day is shown by the hour; very long ranges are made coarser so the chart stays readable.
+  let granularity: EffectiveGranularity = period.days === 1 ? "hour" : query.granularity;
+  if (granularity === "day" && period.days > 62) granularity = "week";
+  if (granularity === "week" && Math.ceil(period.days / 7) > 62) granularity = "month";
+
   const n =
     granularity === "hour"
       ? 24
       : granularity === "day"
-        ? days
+        ? period.days
         : granularity === "week"
-          ? Math.ceil(days / 7)
-          : Math.ceil(days / 30.4);
-  const perPoint = granularity === "hour" ? 1 / 24 : days / n;
+          ? Math.ceil(period.days / 7)
+          : Math.ceil(period.days / 30.4);
+  const perPoint = granularity === "hour" ? HOUR : (period.days / n) * DAY;
+  const shift = period.days * DAY;
 
-  const revenue: number[] = [];
-  const prior: number[] = [];
-  for (let i = 0; i < n; i++) {
-    const t = n > 1 ? i / (n - 1) : 1;
-    const wave = 1 + 0.12 * Math.sin(i * 1.1) + 0.06 * Math.sin(i * 0.4);
-    // Over a day, trade peaks in the middle of the working day.
-    const shape =
-      granularity === "hour"
-        ? 0.35 + 1.3 * Math.max(0, Math.sin(((i - 6) / 14) * Math.PI))
-        : 1;
-    revenue.push(
-      DAILY_BASE * factor * perPoint * (0.82 + 0.34 * t) * wave * shape,
-    );
-    prior.push(
-      DAILY_BASE *
-      factor *
-      perPoint *
-      (0.72 + 0.3 * t) *
-      (1 + 0.1 * Math.sin(i * 0.9 + 1)) *
-      shape,
-    );
-  }
-
-  return revenue.map((r, i) => {
-    const start =
-      granularity === "hour"
-        ? `${from}T${String(i).padStart(2, "0")}:00`
-        : iso(ts(from) + Math.round(i * perPoint) * DAY);
+  const series: TimePoint[] = Array.from({ length: n }, (_, i) => {
+    const start = from + Math.round(i * perPoint);
+    const end = i === n - 1 ? to : from + Math.round((i + 1) * perPoint);
+    const slice = within(paid, start, end);
     return {
-      at: start,
-      revenue: Math.round(r),
-      prior: Math.round(prior[i]!),
-      // Cash is collected after invoicing, so it trails the revenue curve.
-      collected: Math.round(0.9 * (i ? revenue[i - 1]! : r * 0.9)),
-      margin: Math.round(r * 0.384),
+      at: granularity === "hour" ? `${period.from}T${String(i).padStart(2, "0")}:00` : iso(start),
+      revenue: Math.round(total(slice)),
+      prior: Math.round(total(within(prevPaid, start - shift, end - shift))),
+      collected: Math.round(total(slice.filter((o) => o.stage === "completed"))),
+      margin: Math.round(slice.reduce((s, o) => s + marginOn(o, products), 0)),
     };
   });
-};
 
-const CATEGORY_ROWS: {
-  category: ProductCategory;
-  share: number;
-  yoy: number;
-  margin: number;
-}[] = [
-    { category: "copiers", share: 46.5, yoy: 18.2, margin: 27.4 },
-    { category: "printers", share: 33.1, yoy: 14.8, margin: 29.8 },
-    { category: "inks-toner", share: 20.4, yoy: 24.6, margin: 44.6 },
-  ];
-
-const REGIONS: { key: RegionRow["key"]; share: number }[] = [
-  { key: "cairo", share: 36.9 },
-  { key: "delta", share: 30.7 },
-  { key: "gulf", share: 16.6 },
-  { key: "levant", share: 15.8 },
-];
-
-export const buildAnalytics = (query: AnalyticsQuery): AnalyticsResponse => {
-  const period = resolveRange(query);
-  const factor = COHORT_SHARE[query.cohort];
-
-  // One day is shown by the hour; very long ranges are made coarser so the chart stays readable.
-  let granularity: EffectiveGranularity =
-    period.days === 1 ? "hour" : query.granularity;
-  if (granularity === "day" && period.days > 62) granularity = "week";
-  if (granularity === "week" && Math.ceil(period.days / 7) > 62)
-    granularity = "month";
-
-  const series = buildSeries(period.days, period.from, granularity, factor);
   const turnover = series.reduce((s, p) => s + p.revenue, 0);
   const priorTotal = series.reduce((s, p) => s + p.prior, 0);
-  const peakIndex = series.reduce(
-    (best, p, i) => (p.revenue > series[best]!.revenue ? i : best),
-    0,
-  );
+  const peakIndex = series.reduce((best, p, i) => (p.revenue > series[best]!.revenue ? i : best), 0);
 
-  const aov = round2(AOV * COHORT_AOV[query.cohort]);
-  const orders = Math.max(1, Math.round(turnover / aov));
-  const sessions = Math.round(orders / 0.0342);
+  const aov = paid.length ? round2(turnover / paid.length) : 0;
+  const prevAov = prevPaid.length ? total(prevPaid) / prevPaid.length : 0;
 
   // A short line for the first card: the series squeezed into twelve steps.
   const trend = Array.from({ length: 12 }, (_, k) => {
     const lo = Math.floor((k * series.length) / 12);
     const hi = Math.max(lo + 1, Math.floor(((k + 1) * series.length) / 12));
     const slice = series.slice(lo, hi);
-    return slice.reduce((s, p) => s + p.revenue, 0) / slice.length;
+    return slice.length ? slice.reduce((s, p) => s + p.revenue, 0) / slice.length : 0;
   });
 
+  // The order pipeline. Visits and page views are not tracked, so the funnel starts at orders placed.
   const counts = [
-    sessions,
-    Math.round(sessions * 0.449),
-    Math.round(sessions * 0.0894),
-    Math.round(sessions * 0.0392),
-    orders,
+    0,
+    0,
+    orders.length,
+    paid.length,
+    orders.filter((o) => o.stage === "inTransit" || o.stage === "completed").length,
   ];
-  const keys: FunnelStage["key"][] = [
-    "sessions",
-    "inspections",
-    "carts",
-    "wire",
-    "dispatched",
-  ];
+  const keys: FunnelStage["key"][] = ["sessions", "inspections", "carts", "wire", "dispatched"];
+  const top = Math.max(...counts);
   const stages: FunnelStage[] = counts.map((count, i) => ({
     key: keys[i]!,
     count,
-    pct: round2((count / sessions) * 100),
-    drop: i ? round2((1 - count / counts[i - 1]!) * 100) : null,
+    pct: top ? round2((count / top) * 100) : 0,
+    drop: i && counts[i - 1]! > 0 ? round2((1 - count / counts[i - 1]!) * 100) : null,
   }));
 
-  const categories: CategoryRow[] = CATEGORY_ROWS.map((r) => ({
-    ...r,
-    revenue: Math.round((turnover * r.share) / 100),
-  }));
+  // Revenue and margin per product category, from the lines on paid orders.
+  const byCategory = new Map<ProductCategory, { revenue: number; prior: number; profit: number; costed: number }>();
+  const addLines = (rows: OrderRow[], field: "revenue" | "prior") => {
+    for (const o of rows) {
+      for (const l of placedOrderOf(o.id)?.lines ?? []) {
+        const p = products.find((x) => x.sku === l.sku);
+        if (!p) continue;
+        const cur = byCategory.get(p.category) ?? { revenue: 0, prior: 0, profit: 0, costed: 0 };
+        cur[field] += l.total;
+        const cost = savedExtras(p.id)?.cost;
+        if (field === "revenue" && cost != null) {
+          cur.profit += l.total - cost * l.quantity;
+          cur.costed += l.total;
+        }
+        byCategory.set(p.category, cur);
+      }
+    }
+  };
+  addLines(paid, "revenue");
+  addLines(prevPaid, "prior");
+  const categoryTotal = [...byCategory.values()].reduce((s, c) => s + c.revenue, 0);
+  const categories: CategoryRow[] = (Object.keys(categoryMeta) as ProductCategory[]).map((category) => {
+    const c = byCategory.get(category);
+    return {
+      category,
+      revenue: Math.round(c?.revenue ?? 0),
+      share: categoryTotal ? round1(((c?.revenue ?? 0) / categoryTotal) * 100) : 0,
+      yoy: change(c?.revenue ?? 0, c?.prior ?? 0),
+      margin: c?.costed ? round1((c.profit / c.costed) * 100) : 0,
+    };
+  });
+  const costed = [...byCategory.values()].reduce((s, c) => s + c.costed, 0);
+  const profit = [...byCategory.values()].reduce((s, c) => s + c.profit, 0);
 
   // Cohort tiles always show the whole book, whichever cohort the filter has chosen.
-  const allOrders = Math.round(orders / factor);
-  const cohorts = [
-    {
-      key: "enterprise" as const,
-      share: 48,
-      yoy: 31,
-      orders: Math.round(allOrders * 0.48),
-    },
-    {
-      key: "business" as const,
-      share: 34,
-      yoy: 12,
-      orders: Math.round(allOrders * 0.34),
-    },
-    {
-      key: "printShop" as const,
-      share: 18,
-      yoy: 6,
-      orders: Math.round(allOrders * 0.18),
-    },
-  ];
+  const book = within(everyOrder, from, to);
+  const bookPrev = within(everyOrder, prevFrom, from);
+  const bookRevenue = total(book.filter(isPaid));
+  const cohorts = (["enterprise", "business", "printShop"] as const).map((key) => {
+    const mine = book.filter((o) => o.customer.tier === key);
+    const before = bookPrev.filter((o) => o.customer.tier === key);
+    return {
+      key,
+      share: bookRevenue ? round1((total(mine.filter(isPaid)) / bookRevenue) * 100) : 0,
+      yoy: change(total(mine.filter(isPaid)), total(before.filter(isPaid))),
+      orders: mine.length,
+    };
+  });
+
+  const regionOf = (o: OrderRow): RegionRow["key"] => {
+    const node = customers.find((c) => c.name === o.customer.name)?.node ?? "";
+    return REGION_OF_NODE[node.toLowerCase()] ?? "cairo";
+  };
+  const regions: RegionRow[] = REGION_KEYS.map((key) => {
+    const mine = orders.filter((o) => regionOf(o) === key);
+    const revenue = Math.round(total(mine.filter(isPaid)));
+    return { key, share: turnover ? round1((revenue / turnover) * 100) : 0, revenue, orders: mine.length };
+  });
+
+  const newClients = (a: number, b: number) =>
+    customers.filter((c) => Date.parse(c.createdAt) >= a && Date.parse(c.createdAt) < b).length;
+  const intake = newClients(from, to);
 
   return {
     query,
@@ -284,96 +269,43 @@ export const buildAnalytics = (query: AnalyticsQuery): AnalyticsResponse => {
     granularity,
     kpis: {
       turnover,
-      turnoverDelta: round2((turnover / priorTotal - 1) * 100),
+      turnoverDelta: change(turnover, priorTotal),
       turnoverChange: turnover - priorTotal,
-      orders,
-      ordersDelta: 8.4,
-      inProgress: Math.max(0, Math.round(orders * 0.0065)),
+      orders: orders.length,
+      ordersDelta: change(orders.length, prevOrders.length),
+      inProgress: orders.filter((o) => o.stage === "checking" || o.stage === "packing" || o.stage === "inTransit").length,
       aov,
-      aovDelta: 9.1,
-      conversion: 3.42,
-      conversionDelta: 0.48,
-      sessions,
-      intake: Math.round((186 * period.days * factor) / 31),
-      intakeDelta: 24.1,
+      aovDelta: change(aov, prevAov),
+      conversion: 0,
+      conversionDelta: 0,
+      sessions: 0,
+      intake,
+      intakeDelta: change(intake, newClients(prevFrom, from)),
       trend,
     },
     series,
     peakIndex,
-    funnel: {
-      stages,
-      conversion: round2((orders / sessions) * 100),
-      velocityHours: 14.2,
-    },
+    funnel: { stages, conversion: 0, velocityHours: 0 },
     categories,
-    portfolioMargin: round2(
-      CATEGORY_ROWS.reduce((s, r) => s + (r.share * r.margin) / 100, 0),
-    ),
+    portfolioMargin: costed ? round1((profit / costed) * 100) : 0,
     cohorts,
-    regions: REGIONS.map((r) => ({
-      key: r.key,
-      share: r.share,
-      revenue: Math.round((turnover * r.share) / 100),
-      orders: Math.round((orders * r.share) / 100),
-    })),
-    accounts: 42,
-    onTimePct: 99.8,
+    regions,
+    accounts: new Set(book.map((o) => o.customer.name)).size,
+    onTimePct: 0,
   };
 };
 
 // --- Best-selling products ---
 
-// Units dispatched in a 31-day month for the first products; the rest follow a fixed pattern.
-const SEED_UNITS: Record<string, number> = {
-  "p-0": 84,
-  "p-1": 31,
-  "p-2": 46,
-  "p-3": 640,
-  "p-4": 18,
-  "p-5": 380,
-  "p-6": 22,
-  "p-7": 210,
-};
-const SEED_MARGIN: Record<string, number> = {
-  "p-0": 33.9,
-  "p-2": 29.8,
-  "p-4": 41.5,
-  "p-3": 54.2,
-  "p-5": 48.6,
-};
-// Days of cover that inbound consignments add on top of what is on the shelf.
-const SEED_INBOUND: Record<string, number> = { "p-0": 12, "p-2": 27, "p-4": 8, "p-3": 41, "p-5": 21 };
-const INBOUND_PATTERN = [14, 28, 8, 42, 21];
-const BASE_MARGIN: Record<ProductCategory, number> = {
-  printers: 30,
-  copiers: 27,
-  "inks-toner": 46,
-};
-
 const statusOf = (daysLeft: number): VelocityStatus =>
-  daysLeft <= 10
-    ? "restock"
-    : daysLeft <= 20
-      ? "low"
-      : daysLeft <= 35
-        ? "optimal"
-        : "healthy";
+  daysLeft <= 10 ? "restock" : daysLeft <= 20 ? "low" : daysLeft <= 35 ? "optimal" : "healthy";
 
 export const parseTopQuery = (raw: Record<string, unknown>): TopQuery => {
   const base = parseAnalyticsQuery(raw);
   const page = Number.parseInt(String(raw.page), 10);
   return {
     q: typeof raw.q === "string" ? raw.q.trim().slice(0, 80) : "",
-    category: pick(
-      raw.category,
-      [
-        "all",
-        "printers",
-        "copiers",
-        "inks-toner",
-      ] as const,
-      "all",
-    ),
+    category: pick(raw.category, ["all", "printers", "copiers", "inks-toner"] as const, "all"),
     page: Number.isFinite(page) ? Math.min(100_000, Math.max(1, page)) : 1,
     perPage: Number(pick(String(raw.perPage), ["5", "10", "25"] as const, "5")),
     range: base.range,
@@ -383,24 +315,32 @@ export const parseTopQuery = (raw: Record<string, unknown>): TopQuery => {
 };
 
 export const queryTopProducts = (query: TopQuery): TopProductsResponse => {
-  const { days } = resolveRange(query);
+  const { days, from, to } = resolveRange(query);
   const needle = query.q.toLowerCase();
+
+  // Units and revenue sold in the period, by SKU.
+  const sold = new Map<string, { units: number; revenue: number }>();
+  for (const o of within(allOrders().filter(isPaid), ts(from), ts(to) + DAY)) {
+    for (const l of placedOrderOf(o.id)?.lines ?? []) {
+      const cur = sold.get(l.sku) ?? { units: 0, revenue: 0 };
+      cur.units += l.quantity;
+      cur.revenue += l.total;
+      sold.set(l.sku, cur);
+    }
+  }
 
   const ranked = allProducts()
     .filter(
       (p) =>
         (query.category === "all" || p.category === query.category) &&
-        (!needle ||
-          [p.name, p.sku, p.spec].join(" ").toLowerCase().includes(needle)),
+        (!needle || [p.name, p.sku, p.spec].join(" ").toLowerCase().includes(needle)),
     )
     .map((p) => {
-      const n = Number(p.id.slice(2)) || 0;
-      const monthUnits = SEED_UNITS[p.id] ?? 1 + ((n * 13) % 40);
-      const units = Math.max(1, Math.round((monthUnits * days) / 31));
-      const perDay = units / days;
-      // Buffer = shelf stock plus the consignments on their way.
-      const inbound = SEED_INBOUND[p.id] ?? INBOUND_PATTERN[n % INBOUND_PATTERN.length]!;
-      const daysLeft = Math.floor(p.stock / perDay) + inbound;
+      const s = sold.get(p.sku) ?? { units: 0, revenue: 0 };
+      const perDay = s.units / days;
+      // With no sales there is nothing to run out of: shown as a year of cover.
+      const daysLeft = perDay > 0 ? Math.floor(p.stock / perDay) : 365;
+      const cost = savedExtras(p.id)?.cost;
       return {
         id: p.id,
         name: p.name,
@@ -408,24 +348,20 @@ export const queryTopProducts = (query: TopQuery): TopProductsResponse => {
         spec: p.spec,
         icon: p.icon,
         category: p.category,
-        units,
-        revenue: Math.round(units * p.price),
-        margin:
-          SEED_MARGIN[p.id] ??
-          Math.round((BASE_MARGIN[p.category] + (n % 7) * 0.4) * 10) / 10,
+        units: s.units,
+        revenue: Math.round(s.revenue),
+        margin: cost != null && p.price > 0 ? round1(((p.price - cost) / p.price) * 100) : 0,
         daysLeft,
-        perDay: Math.round(perDay * 10) / 10,
+        perDay: round1(perDay),
         status: statusOf(daysLeft),
       };
     })
-    .sort((a, b) => b.revenue - a.revenue);
+    .sort((a, b) => b.revenue - a.revenue || b.units - a.units);
 
   const pageCount = Math.max(1, Math.ceil(ranked.length / query.perPage));
   const page = Math.min(query.page, pageCount);
   const start = (page - 1) * query.perPage;
-  const rows: TopProductRow[] = ranked
-    .slice(start, start + query.perPage)
-    .map((r, i) => ({ ...r, rank: start + i + 1 }));
+  const rows: TopProductRow[] = ranked.slice(start, start + query.perPage).map((r, i) => ({ ...r, rank: start + i + 1 }));
 
   return {
     rows,

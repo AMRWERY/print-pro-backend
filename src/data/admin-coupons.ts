@@ -18,71 +18,11 @@ import type { ProductCategory } from "~/types/admin/products";
 // Demo coupon book. When the app has a backend this file goes away and
 // server/api/admin/coupons/* proxies the real service.
 
-/** The book has a fixed "today" so states and expiry are stable between reloads. */
-const TODAY = "2026-10-31";
+const today = () => new Date().toISOString().slice(0, 10);
 const DAY = 86_400_000;
-const addDays = (days: number) => new Date(Date.parse(TODAY) + days * DAY).toISOString().slice(0, 10);
+const addDays = (days: number) => new Date(Date.parse(today()) + days * DAY).toISOString().slice(0, 10);
 
-type Seed = Omit<Coupon, "id" | "updatedAt" | "status"> & { status?: CouponStatus };
-
-const seeds: Seed[] = [
-  { code: "TONER-BULK10", campaign: "Toner Bulk Saver", description: "10% off ink and toner when you buy three or more of the same item.", type: "percentage", value: 10, cap: 1500, limit: 200, used: 142, perAccount: 3, minOrder: 1000, tier: "all", categories: ["inks-toner"], startsAt: addDays(-40), endsAt: addDays(55) },
-  { code: "FREE-DELIVERY-A3", campaign: "Free Delivery on A3 Machines", description: "Free insured delivery and installation on A3 photocopiers.", type: "freight", value: 320, cap: null, limit: 500, used: 480, perAccount: 0, minOrder: 1200, tier: "all", categories: ["copiers"], startsAt: addDays(-90), endsAt: addDays(1) },
-  { code: "PRINTER-SETUP-250", campaign: "Printer Setup Credit", description: "Service credit for on-site setup of large-format printers.", type: "serviceCredit", value: 250, cap: null, limit: 100, used: 64, perAccount: 1, minOrder: 3500, tier: "all", categories: ["printers"], startsAt: addDays(-30), endsAt: addDays(90) },
-  { code: "BUSINESS-2026", campaign: "Business Account Bulk Procurement", description: "20% rebate for schools and offices ordering in bulk.", type: "percentage", value: 20, cap: 4000, limit: 50, used: 28, perAccount: 5, minOrder: 10000, tier: "AAA", categories: [], startsAt: addDays(-120), endsAt: addDays(200) },
-  { code: "WELCOME-INK", campaign: "Welcome Ink Offer", description: "Welcome credit on the first ink order for new customers.", type: "fixed", value: 50, cap: null, limit: 1000, used: 820, perAccount: 1, minOrder: 300, tier: "all", categories: ["inks-toner"], startsAt: addDays(-200), endsAt: null },
-  { code: "COPIER-TRADE-IN", campaign: "Trade-In Upgrade Bonus", description: "Extra credit when you trade in an old photocopier.", type: "fixed", value: 1200, cap: null, limit: 12, used: 12, perAccount: 1, minOrder: 12000, tier: "all", categories: ["copiers"], startsAt: addDays(-150), endsAt: addDays(30) },
-  { code: "EXPO-CAIRO-26", campaign: "Cairo Office Expo Voucher", description: "Voucher for visitors of the Cairo office technology expo.", type: "percentage", value: 10, cap: 500, limit: 250, used: 0, perAccount: 1, minOrder: 800, tier: "all", categories: [], startsAt: addDays(10), endsAt: addDays(25) },
-];
-
-const WORDS = ["PRINTER", "TONER", "INK", "COPIER", "OFFICE", "SCHOOL", "BULK", "SETUP", "PRINT", "SERVICE", "DELIVERY", "SUPPLIES"];
-const THEMES = ["Autumn Toner Saver", "Spring Printer Clearance", "School Supplies Rebate", "Office Onboarding Credit", "Winter Copier Offer", "Reseller Loyalty Reward", "Ink Refill Incentive"];
-const CATS: ProductCategory[][] = [["printers"], ["copiers"], ["inks-toner"], ["printers", "inks-toner"], ["copiers", "inks-toner"], ["printers", "copiers"], []];
-const TYPES: CouponType[] = ["percentage", "fixed", "freight", "serviceCredit"];
-
-// How the 21 generated coupons are spread: scheduled, depleted, expired, draft, paused, active.
-const PLAN: ("scheduled" | "depleted" | "expired" | "draft" | "paused" | "active")[] = [
-  "scheduled", "depleted", "depleted", "expired", "expired", "expired", "draft", "draft", "paused",
-  "active", "active", "active", "active", "active", "active", "active", "active", "active", "active", "active", "active",
-];
-
-const generated: Seed[] = PLAN.map((plan, k) => {
-  const type = TYPES[k % TYPES.length]!;
-  const limit = [25, 50, 100, 250, 500][k % 5]!;
-  const base: Seed = {
-    code: `${WORDS[k % WORDS.length]}-${String(10 + k * 3).padStart(2, "0")}`,
-    campaign: `${THEMES[k % THEMES.length]!}`,
-    description: `Offer for ${CATS[k % CATS.length]!.length ? "selected categories" : "all categories"}.`,
-    type,
-    value: type === "percentage" ? [5, 10, 12, 15, 20][k % 5]! : [50, 100, 150, 250, 320][k % 5]!,
-    cap: type === "percentage" ? [500, 1000, 2000][k % 3]! : null,
-    limit,
-    used: Math.floor(limit * (0.15 + ((k * 7) % 60) / 100)),
-    perAccount: [1, 3, 0][k % 3]!,
-    minOrder: [300, 800, 1500, 3000, 5000][k % 5]!,
-    tier: k % 7 === 0 ? "AAA" : k % 7 === 3 ? "AA" : "all",
-    categories: CATS[k % CATS.length]!,
-    startsAt: addDays(-60 - k),
-    endsAt: addDays(30 + k * 6),
-  };
-  switch (plan) {
-    case "scheduled": return { ...base, used: 0, startsAt: addDays(7), endsAt: addDays(60) };
-    case "depleted": return { ...base, used: limit };
-    case "expired": return { ...base, endsAt: addDays(-5 - k), used: Math.floor(limit * 0.6) };
-    case "draft": return { ...base, used: 0, startsAt: null, endsAt: null, status: "draft" };
-    case "paused": return { ...base, status: "paused" };
-    default: return k === 9 || k === 10 ? { ...base, endsAt: addDays(k === 9 ? 1 : 2) } : base;
-  }
-});
-
-const store = persistentList<Coupon>("coupons", () => [...seeds, ...generated].map((s, i) => ({
-  ...s,
-  id: `cp-${i}`,
-  // 0 in the seed data means no per-account limit.
-  perAccount: s.perAccount ? s.perAccount : null,
-  status: s.status ?? "active",
-  updatedAt: new Date(Date.parse(TODAY) - (i * 7 + 3) * 3_600_000 * 6).toISOString(),
-})));
+const store = persistentList<Coupon>("coupons", () => []);
 
 const seq = persistentValue("coupons.seq", () => store.length);
 const clock = persistentValue("coupons.clock", () => 0);
@@ -92,8 +32,8 @@ const clock = persistentValue("coupons.clock", () => 0);
 export const stateOf = (c: Coupon): CouponState => {
   if (c.status === "draft") return "draft";
   if (c.status === "archived") return "expired";
-  if (c.endsAt && c.endsAt < TODAY) return "expired";
-  if (c.startsAt && c.startsAt > TODAY) return "scheduled";
+  if (c.endsAt && c.endsAt < today()) return "expired";
+  if (c.startsAt && c.startsAt > today()) return "scheduled";
   if (c.limit !== null && c.used >= c.limit) return "depleted";
   if (c.status === "paused") return "paused";
   return "active";
@@ -230,7 +170,7 @@ export const validateCoupon = (body: unknown): CouponInput | null => {
 
 export const codeTaken = (code: string, exceptId?: string) => store.some((c) => c.code === code && c.id !== exceptId);
 
-const stamp = () => new Date(Date.parse(TODAY) + DAY + ++clock.value * 60_000).toISOString();
+const stamp = () => new Date(Date.now() + ++clock.value).toISOString();
 
 export const createCoupon = (input: CouponInput): CouponRow => {
   const coupon: Coupon = { ...input, id: `cp-${seq.value++}`, used: 0, updatedAt: stamp() };

@@ -69,11 +69,8 @@ export const catalogEntries = (): CatalogEntry[] => {
 
   for (const c of catalogProducts) {
     const a = bySku.get(c.sku);
-    if (!a) {
-      // Not in the admin register at all: sold as written.
-      out.push({ product: c, stock: Infinity, adminId: "" });
-      continue;
-    }
+    // Only what an admin has registered is sold; the written page just supplies the copy and specs.
+    if (!a) continue;
     linked.add(a.id);
     if (!isListed(a)) continue;
     const extras = savedExtras(a.id);

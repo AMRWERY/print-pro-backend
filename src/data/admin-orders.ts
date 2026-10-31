@@ -79,7 +79,7 @@ const hexOf = (id: number) =>
 const created = persistentList<OrderRow>("orders.created", () => []);
 
 // Only orders that carry their real lines count (older index-based demo rows have none).
-const allOrders = () => created.filter((o) => placed.some((p) => p.id === o.id));
+export const allOrders = () => created.filter((o) => placed.some((p) => p.id === o.id));
 
 /** The real content of an order placed on the storefront: what the detail screen shows instead of the demo lines. */
 export interface PlacedOrder {

@@ -1,223 +1,196 @@
+import { allOrders, placedOrderOf } from "~/data/admin-orders";
+import { allCustomers } from "~/data/admin-customers";
+import { allProducts } from "~/data/admin-products";
+import type { OrderRow, OrderStage } from "~/types/admin/orders";
+import type { Product } from "~/types/admin/products";
 import type {
   DashboardSummary,
+  LowStockItem,
+  OrderStatus,
+  OrderSummaryRow,
   RangeKey,
+  RecentCustomer,
   RevenueSeries,
   RevenueUnit,
+  TopProduct,
 } from "~/types/admin/dashboard";
 
-// Demo data for the executive bench. When the app has a backend this file goes away and
-// server/api/admin/* proxies the real service.
+// The executive bench: every figure is worked out from the real orders, products and customers.
 
-export const dashboardSummary: DashboardSummary = {
-  kpis: {
-    revenue: {
-      value: 482940,
-      delta: 14.8,
-      trend: [38, 41, 40, 46, 44, 52, 49, 58, 63, 61, 70, 78],
-    },
-    orders: { value: 1284, delta: 8.4 },
-    customers: { value: 3420, delta: 142 },
-    products: { value: 4812 },
-    lowStock: { value: 7 },
-    pendingOrders: { value: 42 },
-  },
-  lowStock: [
-    {
-      sku: "PP-TN-KAB-A3",
-      name: "Kopira Toner Black A3 Series",
-      spec: "Black toner · 30,000 pages",
-      status: "critical",
-      remaining: 2,
-      threshold: 5,
-      unit: "units",
-      note: "lead",
-      noteValue: "12d · Cairo",
-      action: "restockToner",
-    },
-    {
-      sku: "PP-TN-C21H",
-      name: "Corex Toner Black 210 High-Yield",
-      spec: "6,000 pages per cartridge",
-      status: "depleting",
-      remaining: 6,
-      threshold: 15,
-      unit: "cartridges",
-      note: "run",
-      noteValue: "Supplier batch",
-      action: "restockToner",
-    },
-    {
-      sku: "PP-IK-NP8",
-      name: "Nordjet Pigment Ink 8-Colour Set",
-      spec: "8 × 130 ml pigment set",
-      status: "scheduled",
-      remaining: 4,
-      threshold: 12,
-      unit: "packs",
-      note: "edi",
-      noteValue: "Scheduled",
-      action: "confirmEdi",
-    },
-    {
-      sku: "PP-KP-A335",
-      name: "Kopira Pro A3 35 ppm Mono",
-      spec: "A3 mono photocopier",
-      status: "critical",
-      remaining: 1,
-      threshold: 3,
-      unit: "units",
-      note: "priority",
-      noteValue: "Service desk",
-      action: "emergencySpares",
-    },
-  ],
-  topProducts: [
-    {
-      rank: 1,
-      name: "Kopira Pro A3 35 ppm Mono",
-      spec: "A3 mono · copy, print, scan, fax",
-      division: "copiers",
-      unitValue: 58900,
-      volume: 6,
-      volumeUnit: "units",
-      revenue: 353400,
-      qa: "100% TESTED",
-      icon: "lucide:copy",
-    },
-    {
-      rank: 2,
-      name: 'Nordjet Large-Format 44" CAD & Poster',
-      spec: "5 inks · stand included",
-      division: "printers",
-      unitValue: 82500,
-      volume: 2,
-      volumeUnit: "units",
-      revenue: 165000,
-      qa: "100% TESTED",
-      icon: "lucide:printer",
-    },
-    {
-      rank: 3,
-      name: "Corex Toner Black 210 High-Yield",
-      spec: "Black toner · 6,000 pages",
-      division: "toner",
-      unitValue: 2100,
-      volume: 40,
-      volumeUnit: "cartridges",
-      revenue: 84000,
-      qa: "GENUINE",
-      icon: "lucide:droplets",
-    },
-    {
-      rank: 4,
-      name: "Kopira Toner Black A3 Series",
-      spec: "Black toner · 30,000 pages",
-      division: "toner",
-      unitValue: 2800,
-      volume: 19,
-      volumeUnit: "cartridges",
-      revenue: 53200,
-      qa: "GENUINE",
-      icon: "lucide:droplets",
-    },
-    {
-      rank: 5,
-      name: "Printa Tank Ink Colour Set (C/M/Y)",
-      spec: "3 × 70 ml refill set",
-      division: "ink",
-      unitValue: 780,
-      volume: 68,
-      volumeUnit: "packs",
-      revenue: 53040,
-      qa: "GENUINE",
-      icon: "lucide:droplets",
-    },
-  ],
-  orders: {
-    total: 42,
-    slaPct: 100,
-    rows: [
-      {
-        id: "#LP-948201",
-        client: "Dr. Amal Fahmy",
-        location: "Delta Architects · Cairo",
-        allocation: "1× Kopira Pro A3 35 · 6× Toner Black",
-        amount: 71690,
-        status: "checking",
-        action: "completeOrder",
-      },
-      {
-        id: "#LP-948198",
-        client: "Nile Print House",
-        location: "Shubra · Cairo",
-        allocation: "2× Corex Laser 450 · 12× Toner set",
-        amount: 34720,
-        status: "inTransit",
-        action: "printDeliveryNote",
-      },
-      {
-        id: "#LP-948195",
-        client: "Cairo Language School",
-        location: "Dokki · Giza",
-        allocation: "1× Corex Laser 700 A3 Mono",
-        amount: 27400,
-        status: "completed",
-        action: "viewOrder",
-      },
-      {
-        id: "#LP-948190",
-        client: "Sherif Accounting Group",
-        location: "Smouha · Alexandria",
-        allocation: "1× Printa Tank 500 · 4× Ink set",
-        amount: 8520,
-        status: "packing",
-        action: "checkBatch",
-      },
-      {
-        id: "#LP-948188",
-        client: "Hassan Medical Clinics",
-        location: "Maadi · Cairo",
-        allocation: "4× Toner Black 210 · Kopira Drum Unit",
-        amount: 14800,
-        status: "completed",
-        action: "viewOrder",
-      },
-    ],
-  },
-  customers: [
-    { initials: "DA", name: "Delta Architects", location: "Dokki · Cairo", lifetimeValue: 142500, tier: "enterprise" },
-    { initials: "NP", name: "Nile Print House", location: "Shubra · Cairo", lifetimeValue: 98400, tier: "printShop" },
-    { initials: "SA", name: "Sherif Accounting Group", location: "Smouha · Alexandria", lifetimeValue: 76200, tier: "business" },
-    { initials: "AU", name: "Alexandria University Press", location: "Shatby · Alexandria", lifetimeValue: 112800, tier: "enterprise" },
-  ],
+const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
+
+/** Revenue counts once an order is paid, so orders still awaiting payment are left out. */
+const isPaid = (o: OrderRow) => o.stage !== "awaitingPayment";
+const at = (o: OrderRow) => Date.parse(o.placedAt);
+const sum = (rows: OrderRow[]) => rows.reduce((s, o) => s + o.amount, 0);
+/** Change against the period before, in percent; 0 when there was nothing to compare with. */
+const change = (now: number, before: number) => (before ? Math.round(((now - before) / before) * 1000) / 10 : 0);
+
+const between = (rows: OrderRow[], from: number, to: number) => rows.filter((o) => at(o) >= from && at(o) < to);
+
+const lowStockOf = (p: Product): LowStockItem => {
+  const critical = p.stock === 0 || p.stock <= Math.floor(p.min / 2);
+  return {
+    sku: p.sku,
+    name: p.name,
+    spec: p.spec,
+    status: critical ? "critical" : "depleting",
+    remaining: p.stock,
+    threshold: p.min,
+    unit: p.unit === "pack" ? "packs" : p.category === "inks-toner" ? "cartridges" : "units",
+    note: "priority",
+    noteValue: p.stock === 0 ? "Out of stock" : "Below reorder point",
+    action:
+      p.category === "inks-toner" ? "restockToner" : critical && p.category === "copiers" ? "emergencySpares" : "restockMachines",
+  };
 };
 
-const RANGES: Record<
-  RangeKey,
-  { count: number; unit: RevenueUnit; scale: number }
-> = {
-  today: { count: 24, unit: "hour", scale: 0.04 },
-  week: { count: 7, unit: "day", scale: 0.35 },
-  month: { count: 30, unit: "day", scale: 1 },
-  quarter: { count: 13, unit: "week", scale: 3.2 },
-  year: { count: 12, unit: "month", scale: 12 },
+const ACTION: Record<OrderStage, OrderSummaryRow["action"]> = {
+  awaitingPayment: "viewOrder",
+  checking: "completeOrder",
+  packing: "checkBatch",
+  inTransit: "printDeliveryNote",
+  completed: "viewOrder",
+};
+
+const allocationOf = (o: OrderRow) => {
+  const lines = placedOrderOf(o.id)?.lines ?? [];
+  if (!lines.length) return `${o.allocation.quantity}× ${o.allocation.title}`;
+  const shown = lines.slice(0, 2).map((l) => `${l.quantity}× ${l.title}`);
+  return lines.length > 2 ? `${shown.join(" · ")} · +${lines.length - 2} more` : shown.join(" · ");
+};
+
+const divisionOf = (p: Product | undefined, title: string): TopProduct["division"] =>
+  !p
+    ? "printers"
+    : p.category === "copiers"
+      ? "copiers"
+      : p.category === "printers"
+        ? "printers"
+        : /toner|drum/i.test(title)
+          ? "toner"
+          : "ink";
+
+const tierOf = (segment: string): RecentCustomer["tier"] =>
+  segment === "enterprise" || segment === "business" || segment === "printShop" || segment === "home" ? segment : "business";
+
+export const dashboardSummary = (): DashboardSummary => {
+  const now = Date.now();
+  const orders = allOrders();
+  const paid = orders.filter(isPaid);
+  const products = allProducts();
+  const customers = allCustomers();
+
+  const thisMonth = between(paid, now - 30 * DAY, now + DAY);
+  const lastMonth = between(paid, now - 60 * DAY, now - 30 * DAY);
+  const ordersNow = between(orders, now - 30 * DAY, now + DAY).length;
+  const ordersBefore = between(orders, now - 60 * DAY, now - 30 * DAY).length;
+
+  // Twelve even steps over the last 30 days for the small trend line.
+  const trend = Array.from({ length: 12 }, (_, k) => {
+    const from = now - 30 * DAY + (k * 30 * DAY) / 12;
+    return Math.round(sum(between(paid, from, from + (30 * DAY) / 12)));
+  });
+
+  const low = products.filter((p) => p.status !== "draft" && p.stock <= p.min).map(lowStockOf);
+  const pending = orders.filter((o) => o.stage === "awaitingPayment");
+
+  // Best sellers by revenue, from the lines on paid orders.
+  const bySku = new Map<string, TopProduct>();
+  for (const o of paid) {
+    for (const l of placedOrderOf(o.id)?.lines ?? []) {
+      const p = products.find((x) => x.sku === l.sku);
+      const cur = bySku.get(l.sku);
+      if (cur) {
+        cur.volume += l.quantity;
+        cur.revenue += l.total;
+      } else {
+        bySku.set(l.sku, {
+          rank: 0,
+          name: l.title,
+          spec: l.spec,
+          division: divisionOf(p, l.title),
+          unitValue: l.unitPrice,
+          volume: l.quantity,
+          volumeUnit: l.unit === "pack" ? "packs" : p?.category === "inks-toner" ? "cartridges" : "units",
+          revenue: l.total,
+          qa: p?.category === "inks-toner" ? "GENUINE" : "100% TESTED",
+          icon: l.icon,
+        });
+      }
+    }
+  }
+  const topProducts = [...bySku.values()]
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 5)
+    .map((t, i) => ({ ...t, rank: i + 1 }));
+
+  const recent = [...orders].sort((a, b) => at(b) - at(a)).slice(0, 5);
+  const overdue = pending.filter((o) => now - at(o) > DAY).length;
+
+  return {
+    kpis: {
+      revenue: { value: Math.round(sum(thisMonth)), delta: change(sum(thisMonth), sum(lastMonth)), trend },
+      orders: { value: orders.length, delta: change(ordersNow, ordersBefore) },
+      customers: {
+        value: customers.length,
+        delta: customers.filter((c) => Date.parse(c.createdAt) >= now - 30 * DAY).length,
+      },
+      products: { value: products.length },
+      lowStock: { value: low.length },
+      pendingOrders: { value: pending.length },
+    },
+    lowStock: low.sort((a, b) => a.remaining - b.remaining).slice(0, 4),
+    topProducts,
+    orders: {
+      total: pending.length,
+      // Share of waiting orders that have not been left unpaid for more than a day.
+      slaPct: pending.length ? Math.round(((pending.length - overdue) / pending.length) * 100) : 100,
+      rows: recent.map((o) => ({
+        id: o.id,
+        client: o.customer.name,
+        location: o.customer.org,
+        allocation: allocationOf(o),
+        amount: o.amount,
+        status: o.stage as OrderStatus,
+        action: ACTION[o.stage],
+      })),
+    },
+    customers: [...customers]
+      .sort((a, b) => b.ltv - a.ltv)
+      .slice(0, 4)
+      .map((c) => ({
+        initials: c.initials,
+        name: c.org || c.name,
+        location: c.node,
+        lifetimeValue: c.ltv,
+        tier: tierOf(c.segment),
+      })),
+  };
+};
+
+const RANGES: Record<RangeKey, { count: number; unit: RevenueUnit; step: number }> = {
+  today: { count: 24, unit: "hour", step: HOUR },
+  week: { count: 7, unit: "day", step: DAY },
+  month: { count: 30, unit: "day", step: DAY },
+  quarter: { count: 13, unit: "week", step: 7 * DAY },
+  year: { count: 12, unit: "month", step: 30 * DAY },
 };
 
 export const isRangeKey = (value: unknown): value is RangeKey =>
   typeof value === "string" && Object.hasOwn(RANGES, value);
 
-/** Deterministic wave so the charts are stable between reloads. */
+/** Paid revenue and order counts in even steps ending now. */
 export const revenueSeries = (range: RangeKey): RevenueSeries => {
-  const { count, unit, scale } = RANGES[range];
+  const { count, unit, step } = RANGES[range];
+  const now = Date.now();
+  const paid = allOrders().filter(isPaid);
+  const start = now - count * step;
   const points = Array.from({ length: count }, (_, i) => {
-    const progress = count > 1 ? i / (count - 1) : 1;
-    const wave = Math.sin(i * 1.3) * 0.08 + Math.sin(i * 0.5) * 0.05;
-    const revenue = Math.round(scale * (20000 + progress * 16000) * (1 + wave));
-    return { revenue, orders: Math.max(1, Math.round(revenue / 420)) };
+    const rows = between(paid, start + i * step, start + (i + 1) * step + (i === count - 1 ? 1 : 0));
+    return { revenue: Math.round(sum(rows)), orders: rows.length };
   });
-  const peakIndex = points.reduce(
-    (best, p, i) => (p.revenue > points[best]!.revenue ? i : best),
-    0,
-  );
+  const peakIndex = points.reduce((best, p, i) => (p.revenue > points[best]!.revenue ? i : best), 0);
   return { range, unit, points, peakIndex };
 };

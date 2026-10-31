@@ -1,16 +1,3 @@
-import type { Voucher } from "~/types/cart";
-
-/** Demo codes. Real validation belongs on the server. */
-export const vouchers: Record<string, Voucher> = {
-  "OFFICE-2026": {
-    label: "Office upgrade offer",
-    type: "flat",
-    amount: 500,
-    minSubtotal: 2000,
-  },
-  WELCOME5: { label: "Welcome offer", type: "percent", amount: 5 },
-};
-
 export const pricing = {
   /** Orders at or above this value (after discounts) ship free. */
   freeFreightFrom: 2500,

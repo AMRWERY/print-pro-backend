@@ -101,10 +101,24 @@ describe("auth", () => {
 });
 
 describe("admin edits reach the storefront", () => {
-  it("lists the seeded catalog", async () => {
+  // The register starts empty: the storefront only sells what an admin has registered, linked by SKU.
+  before(async () => {
+    for (const [sku, name, price] of [
+      ["PP-PR-0300", "Printa Home 300 Wireless Inkjet", 3200],
+      ["PP-PR-0120", "Printa Mini Portable Inkjet", 2400],
+    ] as const) {
+      const r = await call("POST", "/api/admin/products", {
+        token: adminToken,
+        body: { name, sku, brand: "Printa", category: "printers", price, stock: 20, min: 2, status: "active", publication: "published", channels: ["storefront"] },
+      });
+      assert.equal(r.status, 201);
+    }
+  });
+
+  it("lists the products an admin registered", async () => {
     const r = await call("GET", "/api/catalog");
     assert.equal(r.status, 200);
-    assert.ok(r.body.length >= 30);
+    assert.equal(r.body.length, 2);
   });
 
   it("changes a product's price and name in admin and sees it on the storefront", async () => {
@@ -215,10 +229,34 @@ describe("orders", () => {
     assert.equal(row.state, "depleted");
   });
 
-  it("applies a demo voucher on the server", async () => {
+  it("ignores a voucher code nobody created", async () => {
     const r = await call("POST", "/api/orders", { body: orderInput({ voucher: "WELCOME5", delivery: "pickup" }) });
-    assert.equal(r.body.amounts.voucher, 199.95);
-    assert.equal(r.body.amounts.shipping, 0);
+    assert.equal(r.status, 201);
+    assert.equal(r.body.amounts.voucher, 0);
+  });
+});
+
+describe("reports", () => {
+  it("works out the dashboard and analytics from the real orders", async () => {
+    const dash = await call("GET", "/api/admin/dashboard", { token: adminToken });
+    assert.equal(dash.status, 200);
+    assert.equal(dash.body.kpis.products.value, 2);
+    assert.ok(dash.body.kpis.orders.value >= 1);
+    assert.ok(dash.body.orders.rows.length >= 1);
+    assert.ok(dash.body.lowStock.every((x: { remaining: number; threshold: number }) => x.remaining <= x.threshold));
+
+    const series = await call("GET", "/api/admin/revenue?range=month", { token: adminToken });
+    assert.equal(series.status, 200);
+    assert.equal(series.body.points.length, 30);
+
+    const an = await call("GET", "/api/admin/analytics?range=30d", { token: adminToken });
+    assert.equal(an.status, 200);
+    assert.ok(an.body.kpis.orders >= 1);
+    assert.ok(Number.isFinite(an.body.kpis.aov));
+
+    const top = await call("GET", "/api/admin/analytics/top-products?range=30d", { token: adminToken });
+    assert.equal(top.status, 200);
+    assert.equal(top.body.total, 2);
   });
 });
 
@@ -245,7 +283,7 @@ describe("hardening", () => {
     const { get } = await import("../src/db");
     const count = async (c: string) =>
       (await get<{ n: number }>("SELECT COUNT(*) AS n FROM docs WHERE collection = ? AND deleted = 0", [c]))!.n;
-    assert.ok((await count("products")) >= 31);
+    assert.ok((await count("products")) >= 2);
     assert.ok((await count("storefront-orders")) >= 3);
   });
 });
