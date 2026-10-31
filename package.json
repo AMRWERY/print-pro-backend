@@ -13,7 +13,8 @@
     "seed": "tsx src/db/seed.ts",
     "test": "node --import tsx --test \"test/**/*.test.ts\"",
     "build:vercel": "node scripts/build-vercel.mjs",
-    "admin:password": "tsx src/db/set-admin-password.ts"
+    "admin:password": "tsx src/db/set-admin-password.ts",
+    "clear-demo-data": "node scripts/clear-demo-data.mjs"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",

@@ -19,6 +19,10 @@ export const boot = (): Promise<void> => {
     await import("./routes/storefront");
     const stored = await syncAll();
     if (stored) console.info(`[seed] stored ${stored} initial records`);
+    const { allProducts } = await import("~/data/admin-products");
+    const { allCustomers } = await import("~/data/admin-customers");
+    const { allOrders } = await import("~/data/admin-orders");
+    console.info(`[data] ${config.dbUrl}: ${allProducts().length} products, ${allCustomers().length} customers, ${allOrders().length} orders`);
   })().catch((e) => {
     booting = undefined; // let the next request try again
     throw e;
