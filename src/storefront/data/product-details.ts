@@ -1,4 +1,5 @@
-import { catalogProducts, categoryOptions } from "~/storefront/data/catalog";
+import { catalogProducts } from "~/storefront/data/catalog";
+import { categoryLabel, kindOf } from "~/data/admin-categories";
 import { defaultCompanionProducts, defaultRegistryItems } from "~/storefront/data/account";
 import { featured } from "~/storefront/data/home";
 import type {
@@ -75,14 +76,7 @@ export const allProducts: DetailedProduct[] = [
 export const findProduct = (id: string): DetailedProduct | undefined =>
   allProducts.find((p) => p.id === id);
 
-const categoryCrumb = (category: CatalogCategory) => {
-  const to = {
-    printers: "/products/printers",
-    copiers: "/products/photocopiers",
-    "inks-toner": "/products/inks-toner",
-  }[category];
-  return { label: categoryOptions.find((o) => o.key === category)!.label, to };
-};
+const categoryCrumb = (category: CatalogCategory) => ({ label: categoryLabel(category), to: `/products/${category}` });
 
 const yes = (v: boolean) => (v ? "Yes" : "No");
 const list = (v: string[]) =>
@@ -90,7 +84,7 @@ const list = (v: string[]) =>
 
 /** Spec rows built from a product's attributes, so every product has category-specific specifications. */
 const attrSpecGroups = (p: CatalogProduct): SpecGroup[] => {
-  if (p.category === "printers") {
+  if (kindOf(p.category) === "printer") {
     const a = p.attrs as PrinterAttrs;
     return [
       {
@@ -115,7 +109,7 @@ const attrSpecGroups = (p: CatalogProduct): SpecGroup[] => {
       },
     ];
   }
-  if (p.category === "copiers") {
+  if (kindOf(p.category) === "copier") {
     const a = p.attrs as CopierAttrs;
     return [
       {
@@ -145,7 +139,16 @@ const attrSpecGroups = (p: CatalogProduct): SpecGroup[] => {
 };
 
 const perCategory = {
-  printers: {
+  general: {
+    packages: () => [
+      { id: "std", label: "Standard", note: "Delivered to your address and covered by the manufacturer warranty.", delta: 0 },
+    ],
+    assurance: ["Manufacturer warranty included", "Checked before dispatch", "Easy returns if it does not fit"],
+    qa: [
+      { q: "Can you help me choose?", a: "Yes. Contact us with what you need it for and we will recommend the right one." },
+    ],
+  },
+  printer: {
     packages: (price: number) => [
       { id: "std", label: "Printer only", note: "Printer, power cable, starter inks or toner and setup guide.", delta: 0 },
       { id: "care", label: "With setup and 2-year care plan", note: "We set it up on your network and cover repairs for two years.", delta: Math.round(price * 0.08) },
@@ -156,7 +159,7 @@ const perCategory = {
       { q: "Can you set it up for us?", a: "Choose the setup option above and a technician installs and connects it to your network." },
     ],
   },
-  copiers: {
+  copier: {
     packages: (price: number) => [
       { id: "std", label: "Machine with delivery and installation", note: "Delivered, installed, connected to your network and tested.", delta: 0 },
       { id: "care", label: "With 3-year maintenance contract", note: "Scheduled servicing, parts and on-site repairs for three years.", delta: Math.round(price * 0.12) },
@@ -167,7 +170,7 @@ const perCategory = {
       { q: "What supplies does it use?", a: "Compatible toner and drum units are listed under Inks & Toner where we stock them. Ask us for a supplies plan if you copy a lot." },
     ],
   },
-  "inks-toner": {
+  supply: {
     packages: () => [
       { id: "std", label: "Genuine, factory sealed", note: "Original supply in its sealed manufacturer packaging.", delta: 0 },
     ],
@@ -429,7 +432,7 @@ export const getProductDetail = (product: DetailedProduct): ProductDetail => {
 
   const cp = product as Partial<CatalogProduct>;
   const category: CatalogCategory = cp.category ?? "printers";
-  const copy = perCategory[category];
+  const copy = perCategory[kindOf(category)];
   const specGroups: SpecGroup[] = cp.attrs
     ? attrSpecGroups(product as CatalogProduct)
     : [

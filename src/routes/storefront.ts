@@ -5,7 +5,7 @@ import { config } from "../config";
 import { get } from "../db";
 import { handler, httpError, param } from "../lib/http";
 import { requireAuth } from "../middleware/auth";
-import { adminPictures, findCatalogEntry, findSellable, listCatalog, pictureData } from "../storefront/catalog";
+import { adminPictures, findCatalogEntry, findSellable, listCatalog, listStorefrontCategories, pictureData } from "../storefront/catalog";
 import { getProductDetail } from "../storefront/data/product-details";
 import { findOrderFor, orderBody, ordersOfUser, placeOrder, quoteVoucher } from "../storefront/orders";
 import type { RequisitionOrder } from "~/types/account";
@@ -21,6 +21,11 @@ const limiter = (limit: number, windowMs = 15 * 60_000) =>
     legacyHeaders: false,
     message: { statusCode: 429, message: "Too many requests. Try again later." },
   });
+
+storefrontRouter.get(
+  "/categories",
+  handler(() => listStorefrontCategories()),
+);
 
 storefrontRouter.get(
   "/catalog",

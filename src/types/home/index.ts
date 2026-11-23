@@ -1,6 +1,6 @@
 export interface Product {
   id: string;
-  group: "printer" | "copier" | "ink";
+  group: "printer" | "copier" | "ink" | "general";
   badge: {
     label: string;
     tone: "success" | "info" | "warning";

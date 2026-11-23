@@ -1,4 +1,5 @@
-export type ProductCategory = "printers" | "copiers" | "inks-toner";
+/** The key of a category (see data/admin-categories). */
+export type ProductCategory = string;
 
 /** testing = being tested before it is listed, hold = withdrawn or on hold. */
 export type ProductStatus = "active" | "testing" | "hold" | "draft";

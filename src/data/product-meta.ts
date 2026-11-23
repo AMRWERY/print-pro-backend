@@ -1,5 +1,4 @@
 import type {
-  ProductCategory,
   ProductSort,
   ProductStatus,
   StockFilter,
@@ -8,20 +7,6 @@ import type {
 import type { Tone } from "~/types/shared/VStatusBadge";
 
 // Labels, tones and icons for the products screen (no Tailwind classes, see order-meta.ts).
-
-export const categoryMeta: Record<ProductCategory, { label: string; icon: string }> = {
-  printers: { label: "Printers", icon: "lucide:printer" },
-  copiers: { label: "Photocopiers", icon: "lucide:copy" },
-  "inks-toner": { label: "Inks & Toner", icon: "lucide:droplets" },
-};
-
-export const categoryOptions: { value: "all" | ProductCategory; label: string }[] = [
-  { value: "all", label: "Category: all" },
-  ...(Object.keys(categoryMeta) as ProductCategory[]).map((value) => ({
-    value,
-    label: categoryMeta[value].label,
-  })),
-];
 
 export const stockMeta: Record<StockState, { label: string; tone: Tone; icon: string }> = {
   ok: { label: "In stock", tone: "success", icon: "lucide:circle-check" },

@@ -14,6 +14,7 @@ import type {
 } from "~/types/admin/coupons";
 import { persistentList, persistentValue } from "~/db/persist";
 import type { ProductCategory } from "~/types/admin/products";
+import { categoryKeys } from "~/data/admin-categories";
 
 // Demo coupon book. When the app has a backend this file goes away and
 // server/api/admin/coupons/* proxies the real service.
@@ -147,9 +148,10 @@ export const validateCoupon = (body: unknown): CouponInput | null => {
   const limit = numOrNull(b.limit, 10_000_000);
   if (limit !== null && (!Number.isInteger(limit) || limit < 1)) return null;
   const perAccount = numOrNull(b.perAccount, 1000);
-  const categories = (Array.isArray(b.categories) ? b.categories : [])
-    .filter((c): c is ProductCategory => ["printers", "copiers", "inks-toner"].includes(c as string))
-    .slice(0, 6);
+  const asked = Array.isArray(b.categories) ? b.categories : [];
+  // A coupon may only point at categories that exist.
+  if (asked.some((c) => typeof c !== "string" || !categoryKeys().includes(c))) return null;
+  const categories = (asked as ProductCategory[]).slice(0, 6);
   return {
     code,
     campaign,
@@ -184,6 +186,9 @@ export const updateCoupon = (id: string, input: CouponInput): CouponRow | null =
   Object.assign(coupon, input, { updatedAt: stamp() });
   return toRow(coupon);
 };
+
+/** How many coupons are limited to this category. */
+export const couponCountUsing = (key: string): number => store.filter((c) => c.categories.includes(key)).length;
 
 export const findCoupon = (id: string) => store.find((c) => c.id === id);
 

@@ -10,6 +10,7 @@ import {
 import { persistentList, persistentValue } from "~/db/persist";
 import { stockStateOf } from "~/data/product-meta";
 import type { Product, ProductCategory } from "~/types/admin/products";
+import { parseCategoryFilter } from "~/data/admin-categories";
 import type {
   AdjustInput,
   InventoryFilter,
@@ -31,7 +32,7 @@ import type {
 
 export const WAREHOUSES: Warehouse[] = ["CAI-01", "GIZ-02", "ALX-01"];
 
-const BIN_PREFIX: Record<ProductCategory, string> = {
+const BIN_PREFIX: Record<string, string> = {
   printers: "PRN",
   copiers: "CPY",
   "inks-toner": "SUP",
@@ -51,6 +52,9 @@ const unplace = (id: string) => {
   if (i >= 0) placements.splice(i, 1);
 };
 
+/** Bin names start with a short code for the category; new categories use the first letters of their key. */
+const binPrefix = (key: string) => BIN_PREFIX[key] ?? (key.replace(/[^a-z]/g, "").slice(0, 3).toUpperCase() || "GEN");
+
 const numberOf = (id: string) => Number(id.slice(2)) || 0;
 
 const locate = (p: Product): { warehouse: Warehouse; bin: string } => {
@@ -58,7 +62,7 @@ const locate = (p: Product): { warehouse: Warehouse; bin: string } => {
   if (override) return { warehouse: override.warehouse, bin: override.bin };
   const n = numberOf(p.id);
   const warehouse: Warehouse = p.category === "copiers" ? "GIZ-02" : n % 5 === 0 ? "ALX-01" : "CAI-01";
-  return { warehouse, bin: `${BIN_PREFIX[p.category]}-${String((n % 9) + 1).padStart(2, "0")}` };
+  return { warehouse, bin: `${binPrefix(p.category)}-${String((n % 9) + 1).padStart(2, "0")}` };
 };
 
 const toItem = (p: Product): InventoryItem => {
@@ -115,7 +119,7 @@ export const parseInventoryQuery = (raw: Record<string, unknown>): InventoryQuer
   const page = Number.parseInt(String(raw.page), 10);
   return {
     q: typeof raw.q === "string" ? raw.q.trim().slice(0, 80) : "",
-    category: pick(raw.category, ["all", "printers", "copiers", "inks-toner"] as const, "all"),
+    category: parseCategoryFilter(raw.category),
     warehouse: pick(raw.warehouse, ["all", ...WAREHOUSES] as const, "all"),
     filter: pick<InventoryFilter>(raw.filter, ["all", "healthy", "low", "out", "hold"], "all"),
     sort: pick<InventorySort>(raw.sort, ["urgent", "qtyAsc", "qtyDesc", "value"], "urgent"),
@@ -233,7 +237,7 @@ export const transferItem = (body: unknown): ChangeResult => {
   const from = locate(p);
   if (from.warehouse === b.warehouse) return { ok: false, status: 400, message: "Already in that warehouse" };
 
-  place(p.id, { warehouse: b.warehouse as Warehouse, bin: `${BIN_PREFIX[p.category]}-${String((numberOf(p.id) % 9) + 1).padStart(2, "0")}` });
+  place(p.id, { warehouse: b.warehouse as Warehouse, bin: `${binPrefix(p.category)}-${String((numberOf(p.id) % 9) + 1).padStart(2, "0")}` });
   record("transfer", null, p, `Moved from ${from.warehouse} to ${b.warehouse}`);
   return { ok: true, item: toItem(p) };
 };

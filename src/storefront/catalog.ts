@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { findProduct as findStaticProduct } from "./data/product-details";
 import { allProducts as adminProducts, savedExtras } from "~/data/admin-products";
+import { categoryIcon, kindOf, visibleCategories } from "~/data/admin-categories";
+import type { CategoryKind } from "~/types/admin/categories";
 import type { Product as AdminProduct } from "~/types/admin/products";
 import type { CatalogAttrs, CatalogCategory, CatalogProduct } from "~/types/catalog";
 import { badges, catalogProducts } from "./data/catalog";
@@ -19,13 +21,12 @@ const isListed = (p: AdminProduct) => {
   return extras.publication === "published" && extras.channels.includes("storefront");
 };
 
-const defaultAttrs: Record<CatalogCategory, CatalogAttrs> = {
-  printers: { technology: "inkjet", colour: "colour", maxPaper: "A4", connectivity: ["usb"], duplex: false },
-  copiers: { ppm: 20, paper: "A4", colour: "mono", functions: ["copy", "print", "scan"], duplex: false },
-  "inks-toner": { kind: "ink", colour: "black", compatibleWith: [], compatibleBrands: [], yield: "See product page" },
+const defaultAttrs: Record<Exclude<CategoryKind, "general">, CatalogAttrs> = {
+  printer: { technology: "inkjet", colour: "colour", maxPaper: "A4", connectivity: ["usb"], duplex: false },
+  copier: { ppm: 20, paper: "A4", colour: "mono", functions: ["copy", "print", "scan"], duplex: false },
+  supply: { kind: "ink", colour: "black", compatibleWith: [], compatibleBrands: [], yield: "See product page" },
 };
-const groupOf = { printers: "printer", copiers: "copier", "inks-toner": "ink" } as const;
-const iconOf = { printers: "lucide:printer", copiers: "lucide:copy", "inks-toner": "lucide:droplets" } as const;
+const groupOf: Record<CategoryKind, CatalogProduct["group"]> = { printer: "printer", copier: "copier", supply: "ink", general: "general" };
 
 /** In stock keeps its "ships today" badge; a sold-out machine falls back to a special order. */
 const availability = (c: CatalogProduct, stock: number): Pick<CatalogProduct, "dispatch" | "badge"> =>
@@ -61,7 +62,7 @@ const fromAdmin = (a: AdminProduct): CatalogProduct => {
     sku: a.sku,
     category: a.category,
     dispatch,
-    group: groupOf[a.category],
+    group: groupOf[kindOf(a.category)],
     badge: badges[dispatch],
     brand: a.brand,
     name: a.name,
@@ -71,8 +72,8 @@ const fromAdmin = (a: AdminProduct): CatalogProduct => {
     reviews: 0,
     price: a.price,
     lease: 0,
-    icon: iconOf[a.category],
-    attrs: defaultAttrs[a.category],
+    icon: categoryIcon(a.category),
+    attrs: kindOf(a.category) === "general" ? undefined : defaultAttrs[kindOf(a.category) as Exclude<CategoryKind, "general">],
   }, a.id);
 };
 
@@ -114,6 +115,31 @@ export const catalogEntries = (): CatalogEntry[] => {
     out.push({ product: fromAdmin(a), stock: a.stock, adminId: a.id });
   }
   return out;
+};
+
+export interface StorefrontCategory {
+  key: string;
+  name: string;
+  slug: string;
+  icon: string;
+  abstract: string;
+  kind: CategoryKind;
+  /** Products on sale in it. */
+  count: number;
+}
+
+/** What the user site builds its menu, home page and category pages from: visible categories only. */
+export const listStorefrontCategories = (): StorefrontCategory[] => {
+  const entries = catalogEntries();
+  return visibleCategories().map((c) => ({
+    key: c.key,
+    name: c.name,
+    slug: c.slug,
+    icon: c.icon,
+    abstract: c.abstract,
+    kind: c.kind,
+    count: entries.filter((e) => e.product.category === c.key).length,
+  }));
 };
 
 export const listCatalog = (): CatalogProduct[] => catalogEntries().map((e) => e.product);

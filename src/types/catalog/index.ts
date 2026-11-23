@@ -1,6 +1,7 @@
 import type { Product } from "~/types/home";
 
-export type CatalogCategory = "printers" | "copiers" | "inks-toner";
+/** A category key. The built-ins are printers, copiers and inks-toner; admins can add more. */
+export type CatalogCategory = string;
 
 export type DispatchKey =
   | "in-stock"
@@ -44,7 +45,8 @@ export interface CatalogProduct extends Product {
   sku: string;
   category: CatalogCategory;
   dispatch: DispatchKey;
-  attrs: CatalogAttrs;
+  /** Technical attributes; categories of the "general" kind have none. */
+  attrs?: CatalogAttrs;
 }
 
 export interface CatalogFilters {

@@ -1,7 +1,7 @@
 import { allCustomers } from "~/data/admin-customers";
 import { allOrders, placedOrderOf } from "~/data/admin-orders";
 import { allProducts, savedExtras } from "~/data/admin-products";
-import { categoryMeta } from "~/data/product-meta";
+import { categoryKeys, parseCategoryFilter } from "~/data/admin-categories";
 import type { OrderRow } from "~/types/admin/orders";
 import type {
   AnalyticsQuery,
@@ -221,7 +221,7 @@ export const buildAnalytics = (query: AnalyticsQuery): AnalyticsResponse => {
   addLines(paid, "revenue");
   addLines(prevPaid, "prior");
   const categoryTotal = [...byCategory.values()].reduce((s, c) => s + c.revenue, 0);
-  const categories: CategoryRow[] = (Object.keys(categoryMeta) as ProductCategory[]).map((category) => {
+  const categories: CategoryRow[] = categoryKeys().map((category) => {
     const c = byCategory.get(category);
     return {
       category,
@@ -305,7 +305,7 @@ export const parseTopQuery = (raw: Record<string, unknown>): TopQuery => {
   const page = Number.parseInt(String(raw.page), 10);
   return {
     q: typeof raw.q === "string" ? raw.q.trim().slice(0, 80) : "",
-    category: pick(raw.category, ["all", "printers", "copiers", "inks-toner"] as const, "all"),
+    category: parseCategoryFilter(raw.category),
     page: Number.isFinite(page) ? Math.min(100_000, Math.max(1, page)) : 1,
     perPage: Number(pick(String(raw.perPage), ["5", "10", "25"] as const, "5")),
     range: base.range,
@@ -371,4 +371,4 @@ export const queryTopProducts = (query: TopQuery): TopProductsResponse => {
   };
 };
 
-export const categoryLabel = (c: ProductCategory) => categoryMeta[c].label;
+export { categoryLabel } from "~/data/admin-categories";

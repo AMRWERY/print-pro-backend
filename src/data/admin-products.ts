@@ -17,7 +17,9 @@ import type {
   StockFilter
 } from "~/types/admin/products";
 import { createHash } from "node:crypto";
-import { categoryMeta, stockStateOf } from "~/data/product-meta";
+import { stockStateOf } from "~/data/product-meta";
+import { categoryIcon, categoryKeys, categoryLabel, kindOf, parseCategoryFilter } from "~/data/admin-categories";
+import type { CategoryKind } from "~/types/admin/categories";
 import { persistentList, persistentValue } from "~/db/persist";
 
 // The product register: starts empty, filled from the admin Products screen. Products, editor extras, revisions
@@ -40,7 +42,7 @@ export const parseProductsQuery = (raw: Record<string, unknown>): ProductsQuery 
   const page = Number.parseInt(String(raw.page), 10);
   return {
     q: typeof raw.q === "string" ? raw.q.trim().slice(0, 80) : "",
-    category: pick(raw.category, ["all", ...(Object.keys(categoryMeta) as ProductCategory[])] as const, "all"),
+    category: parseCategoryFilter(raw.category),
     brand: typeof raw.brand === "string" && raw.brand.length < 80 ? raw.brand : "all",
     stock: pick<StockFilter>(raw.stock, ["all", "ok", "low", "out", "depleted"], "all"),
     status: pick(raw.status, ["all", "active", "testing", "hold", "draft"] as const, "all"),
@@ -111,6 +113,7 @@ export const productProblems = (body: unknown): Record<string, string> => {
   const stock = Number(b.stock);
   const min = Number(b.min);
   const problems: Record<string, string> = {};
+  if (typeof b.category !== "string" || !categoryKeys().includes(b.category)) problems.category = "Choose a category.";
   if (name.length < 2 || name.length > 120) problems.name = "Enter a product title of 2 to 120 characters.";
   if (!/^[A-Z0-9][A-Z0-9-]{2,30}$/.test(sku))
     problems.sku = "Use 3 to 31 letters, numbers or dashes, with no spaces (for example PRN-300).";
@@ -127,7 +130,7 @@ export const productProblems = (body: unknown): Record<string, string> => {
 export const validateProductInput = (body: unknown): ProductInput | null => {
   if (Object.keys(productProblems(body)).length) return null;
   const b = (body ?? {}) as Record<string, unknown>;
-  const category = pick<ProductCategory>(b.category, Object.keys(categoryMeta) as ProductCategory[], "printers");
+  const category = String(b.category);
   const status = pick<ProductStatus>(b.status, ["active", "testing", "hold", "draft"], "active");
   return {
     name: String(b.name).trim(),
@@ -163,10 +166,10 @@ export const createProduct = (input: ProductInput): Product => {
   const product: Product = {
     id: `p-${n}`,
     tag: "NEW",
-    spec: categoryMeta[input.category].label,
+    spec: categoryLabel(input.category),
     serial: `S/N: ${input.sku}`,
     unit: "unit",
-    icon: categoryMeta[input.category].icon,
+    icon: categoryIcon(input.category),
     ...input,
   };
   store.unshift(product);
@@ -177,7 +180,7 @@ export const updateProduct = (id: string, patch: Partial<ProductInput>): Product
   const product = store.find((p) => p.id === id);
   if (!product) return null;
   Object.assign(product, patch);
-  if (patch.category) product.icon = categoryMeta[patch.category].icon;
+  if (patch.category) product.icon = categoryIcon(patch.category);
   return product;
 };
 
@@ -205,16 +208,18 @@ const slugify = (s: string) =>
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
 
-const HS_CODES: Record<ProductCategory, string> = {
-  printers: "8443.32.10",
-  copiers: "8443.31.00",
-  "inks-toner": "3215.90.00",
+const HS_CODES: Record<CategoryKind, string> = {
+  general: "",
+  printer: "8443.32.10",
+  copier: "8443.31.00",
+  supply: "3215.90.00",
 };
 
-const SPECS: Record<ProductCategory, [string, string][]> = {
-  printers: [["Technology", "Inkjet or laser"], ["Colour", "Colour or black & white"], ["Largest paper size", "A4 to A0"], ["Connectivity", "Wi-Fi, Ethernet, USB"]],
-  copiers: [["Speed", "20 to 75 pages per minute"], ["Paper size", "A4 or A3"], ["Functions", "Copy, print, scan, fax"], ["Automatic duplex", "Yes"]],
-  "inks-toner": [["Type", "Ink, toner or drum unit"], ["Colour", "Black, colour or set"], ["Yield", "Rated pages at 5% coverage"], ["Compatible models", "See the product page"]],
+const SPECS: Record<CategoryKind, [string, string][]> = {
+  general: [],
+  printer: [["Technology", "Inkjet or laser"], ["Colour", "Colour or black & white"], ["Largest paper size", "A4 to A0"], ["Connectivity", "Wi-Fi, Ethernet, USB"]],
+  copier: [["Speed", "20 to 75 pages per minute"], ["Paper size", "A4 or A3"], ["Functions", "Copy, print, scan, fax"], ["Automatic duplex", "Yes"]],
+  supply: [["Type", "Ink, toner or drum unit"], ["Colour", "Black, colour or set"], ["Yield", "Rated pages at 5% coverage"], ["Compatible models", "See the product page"]],
 };
 
 const defaultExtras = (p: Product): ProductExtras => {
@@ -225,14 +230,14 @@ const defaultExtras = (p: Product): ProductExtras => {
     compareAt: Math.round(p.price * 1.08),
     cost: Math.round(p.price * 0.62),
     taxExempt: false,
-    specs: SPECS[p.category].map(([key, value]) => ({ key, value })),
+    specs: SPECS[kindOf(p.category)].map(([key, value]) => ({ key, value })),
     massKg: 2.4,
     dims: { l: 148, w: 182, h: 7 },
-    hsCode: HS_CODES[p.category],
+    hsCode: HS_CODES[kindOf(p.category)],
     packaging: "pallet",
     publication: p.status === "draft" ? "draft" : "published",
     channels: ["storefront", "business"],
-    subType: categoryMeta[p.category].label,
+    subType: categoryLabel(p.category),
     collections: ["Office printing 2026"],
     tags: [`#${slugify(p.brand).replace(/-/g, "")}`],
     bundled: [],

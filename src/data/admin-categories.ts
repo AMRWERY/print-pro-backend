@@ -8,6 +8,7 @@ import type {
 } from "~/types/admin/categories";
 import { persistentList, persistentValue } from "~/db/persist";
 import { allProducts } from "~/data/admin-products";
+import { couponCountUsing } from "~/data/admin-coupons";
 
 // The categories: three built-ins to start with, then whatever the admin adds. Persisted in SQLite
 // (see ~/db/persist). The list is flat. Products, coupons and the storefront refer to a category by `key`.
@@ -92,6 +93,14 @@ export const categoryByKey = (key: string): Category | undefined => store.find((
 export const categoryLabel = (key: string): string => categoryByKey(key)?.name ?? key;
 export const categoryIcon = (key: string): string => categoryByKey(key)?.icon ?? "lucide:package";
 export const kindOf = (key: string): CategoryKind => categoryByKey(key)?.kind ?? "general";
+/** A `category` query value: "all" or the key of an existing category; anything else means "all". */
+export const parseCategoryFilter = (value: unknown): string =>
+  typeof value === "string" && (value === "all" || categoryByKey(value)) ? value : "all";
+
+/** Categories a visitor may see, in their order. */
+export const visibleCategories = (): Category[] =>
+  store.filter((c) => c.visibility === "active").sort((a, b) => a.order - b.order);
+
 export const productCountOf = (key: string): number => allProducts().filter((p) => p.category === key).length;
 
 const siblings = (parentId: string | null) =>
@@ -178,7 +187,9 @@ export const deleteBlocker = (id: string): string | null => {
   const category = store.find((c) => c.id === id);
   if (!category) return null;
   const products = productCountOf(category.key);
-  return products ? `${products} products use this category. Move them first.` : null;
+  if (products) return `${products} products use this category. Move them first.`;
+  const coupons = couponCountUsing(category.key);
+  return coupons ? `${coupons} coupons use this category. Remove it from them first.` : null;
 };
 
 export type CategoryCheck = "ok" | "slug" | "parent";
@@ -227,7 +238,7 @@ export const createCategory = (input: CategoryInput): Category => {
     code: codeFor(input, id),
     order: siblings(input.parentId).length,
     skus: 0,
-    icon: parent?.icon ?? "lucide:folder-tree",
+    icon: "lucide:package",
   };
   store.push(category);
   return category;
