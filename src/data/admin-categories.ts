@@ -141,7 +141,9 @@ export const validateCategory = (body: unknown): CategoryInput | null => {
   return {
     name,
     slug,
-    parentId: typeof b.parentId === "string" && b.parentId ? b.parentId : null,
+    key: typeof b.key === "string" && b.key.trim() ? b.key.trim() : undefined,
+    kind: pick<CategoryKind>(b.kind, ["printer", "copier", "supply", "general"], "general"),
+    parentId: null, // the list is flat
     visibility: pick<CategoryVisibility>(
       b.visibility,
       ["active", "staging", "hidden"],
@@ -160,6 +162,23 @@ export const validateCategory = (body: unknown): CategoryInput | null => {
       "curated",
     ),
   };
+};
+
+/** What is wrong with a key typed on create, or null. 400 for the wrong shape, 409 when it is taken. */
+export const keyProblem = (raw: string | undefined): { status: 400 | 409; message: string } | null => {
+  if (raw === undefined) return null;
+  if (!/^[a-z0-9][a-z0-9-]{1,39}$/.test(raw) || RESERVED_KEYS.includes(raw))
+    return { status: 400, message: "Use 2 to 40 lowercase letters, numbers or dashes, and not a reserved word." };
+  if (store.some((c) => c.key === raw)) return { status: 409, message: "Another category already uses this key." };
+  return null;
+};
+
+/** The reason a category cannot be deleted yet, or null. */
+export const deleteBlocker = (id: string): string | null => {
+  const category = store.find((c) => c.id === id);
+  if (!category) return null;
+  const products = productCountOf(category.key);
+  return products ? `${products} products use this category. Move them first.` : null;
 };
 
 export type CategoryCheck = "ok" | "slug" | "parent";
@@ -203,8 +222,8 @@ export const createCategory = (input: CategoryInput): Category => {
   const category: Category = {
     ...input,
     id,
-    key: slugKey(input.name, new Set(store.map((c) => c.key))),
-    kind: "general",
+    key: input.key ?? slugKey(input.name, new Set(store.map((c) => c.key))),
+    kind: input.kind ?? "general",
     code: codeFor(input, id),
     order: siblings(input.parentId).length,
     skus: 0,
@@ -220,11 +239,8 @@ export const updateCategory = (
 ): Category | null => {
   const category = store.find((c) => c.id === id);
   if (!category) return null;
-  const moved = category.parentId !== input.parentId;
-  Object.assign(category, input);
-  if (moved) {
-    category.order = siblings(input.parentId).filter((c) => c.id !== id).length;
-  }
+  const { key: _key, kind: _kind, ...editable } = input;
+  Object.assign(category, editable);
   return category;
 };
 

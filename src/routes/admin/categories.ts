@@ -2,8 +2,10 @@ import { Router } from "express";
 import {
   checkCategory,
   createCategory,
+  deleteBlocker,
   deleteCategory,
   findCategory,
+  keyProblem,
   listCategories,
   reorderCategories,
   updateCategory,
@@ -23,6 +25,8 @@ categoriesRouter.post(
     const check = checkCategory(input);
     if (check === "slug") throw httpError(409, "Slug already in use");
     if (check === "parent") throw httpError(400, "Invalid parent");
+    const bad = keyProblem(input.key);
+    if (bad) throw httpError(bad.status, bad.message, { key: bad.message });
     res.status(201);
     return createCategory(input);
   }),
@@ -60,6 +64,8 @@ categoriesRouter.delete(
   handler((req) => {
     const id = param(req, "id");
     if (!findCategory(id)) throw httpError(404, "Category not found");
+    const blocker = deleteBlocker(id);
+    if (blocker) throw httpError(409, blocker);
     return { deleted: deleteCategory(id) };
   }),
 );

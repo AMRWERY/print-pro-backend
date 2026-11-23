@@ -42,6 +42,10 @@ export interface CategoriesResponse {
 }
 
 export interface CategoryInput {
+  /** Only honoured when a category is created. */
+  key?: string;
+  /** Only honoured when a category is created. */
+  kind?: CategoryKind;
   name: string;
   slug: string;
   parentId: string | null;

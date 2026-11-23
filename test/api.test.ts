@@ -148,12 +148,12 @@ describe("categories", () => {
   const make = (name: string, slug: string, extra: Record<string, unknown> = {}) =>
     call("POST", "/api/admin/categories", { token: adminToken, body: { name, slug, visibility: "active", ...extra } });
 
-  it("creates a flat category with a generated key and the general kind", async () => {
+  it("creates a flat category with a generated key and the kind it was given", async () => {
     const r = await make("Scanners", "/scanners", { parentId: "c-printers", kind: "printer" });
     assert.equal(r.status, 201);
     assert.equal(r.body.key, "scanners");
     assert.equal(r.body.parentId, null);
-    // a category made in admin never copies a built-in's specs: kind can only be general here
+    // the kind is chosen when the category is created
     assert.equal(r.body.kind, "printer");
   });
 
@@ -458,6 +458,93 @@ describe("reports", () => {
     const top = await call("GET", "/api/admin/analytics/top-products?range=30d", { token: adminToken });
     assert.equal(top.status, 200);
     assert.ok(top.body.total >= 2);
+  });
+});
+
+describe("live categories reach products, coupons, reports and the storefront", () => {
+  const category = (name: string, slug: string, extra: Record<string, unknown> = {}) =>
+    call("POST", "/api/admin/categories", { token: adminToken, body: { name, slug, visibility: "active", ...extra } });
+  const product = (sku: string, categoryKey: string, extra: Record<string, unknown> = {}) =>
+    call("POST", "/api/admin/products", {
+      token: adminToken,
+      body: { name: `Item ${sku}`, sku, brand: "Acme", category: categoryKey, price: 50, stock: 2, min: 1, status: "active", publication: "published", channels: ["storefront"], ...extra },
+    });
+  const coupon = (code: string, categories: string[]) =>
+    call("POST", "/api/admin/coupons", { token: adminToken, body: { code, campaign: code, type: "percentage", value: 10, limit: 5, status: "active", categories } });
+
+  it("rejects a product whose category does not exist and saves one in a new category", async () => {
+    const bad = await product("LIVE-BAD", "nope");
+    assert.equal(bad.status, 400);
+    assert.equal(bad.body.fields.category, "Choose a category.");
+
+    assert.equal((await category("Gadgets", "/gadgets")).body.key, "gadgets");
+    const ok = await product("GADGET-1", "gadgets");
+    assert.equal(ok.status, 201);
+    assert.equal(ok.body.category, "gadgets");
+    assert.equal(ok.body.icon, "lucide:package");
+    const listed = await call("GET", "/api/admin/products?category=gadgets&perPage=50", { token: adminToken });
+    assert.deepEqual(listed.body.rows.map((r: { sku: string }) => r.sku), ["GADGET-1"]);
+  });
+
+  it("lets coupons use existing categories only, and blocks deleting a category a coupon uses", async () => {
+    assert.equal((await coupon("LIVE-NOPE", ["nope"])).status, 400);
+    const only = await category("Coupon only", "/coupon-only");
+    assert.equal((await coupon("LIVE-OK", [only.body.key])).status, 201);
+    const blocked = await call("DELETE", `/api/admin/categories/${only.body.id}`, { token: adminToken });
+    assert.equal(blocked.status, 409);
+    assert.equal(blocked.body.message, "1 coupons use this category. Remove it from them first.");
+  });
+
+  it("lists products whose category key no longer exists without failing", async () => {
+    const { allProducts } = await import("../src/data/admin-products");
+    const store = allProducts();
+    store.push({ id: "p-gone", sku: "GONE-1", name: "Orphan", tag: "", spec: "", serial: "", category: "gone", brand: "Acme", price: 1, stock: 1, min: 1, unit: "unit", status: "active", icon: "lucide:package" } as never);
+    try {
+      for (const path of ["/api/admin/products?perPage=50", "/api/admin/inventory?perPage=50", "/api/admin/analytics", "/api/admin/analytics/top-products?perPage=25", "/api/admin/dashboard"]) {
+        assert.equal((await call("GET", path, { token: adminToken })).status, 200, path);
+      }
+    } finally {
+      store.splice(store.findIndex((p) => p.id === "p-gone"), 1);
+    }
+  });
+
+  it("shows every live category in analytics and filters best sellers by one", async () => {
+    const a = await call("GET", "/api/admin/analytics?range=30d", { token: adminToken });
+    const keys = a.body.categories.map((c: { category: string }) => c.category);
+    assert.ok(keys.includes("gadgets") && keys.includes("printers"));
+    const top = await call("GET", "/api/admin/analytics/top-products?category=gadgets", { token: adminToken });
+    assert.deepEqual(top.body.rows.map((r: { sku: string }) => r.sku), ["GADGET-1"]);
+  });
+
+  it("serves visible categories to the storefront with product counts, kinds and no specs for general ones", async () => {
+    const all = (await call("GET", "/api/categories")).body as { key: string; kind: string; count: number; name: string }[];
+    assert.equal(all.find((c) => c.key === "printers")?.kind, "printer");
+    const gadgets = all.find((c) => c.key === "gadgets")!;
+    assert.equal(gadgets.kind, "general");
+    assert.equal(gadgets.count, 1);
+    await category("Empty Shelf", "/empty-shelf");
+    assert.equal(((await call("GET", "/api/categories")).body as typeof all).find((c) => c.key === "empty-shelf")?.count, 0);
+
+    const entry = (await call("GET", "/api/catalog")).body.find((p: { sku: string }) => p.sku === "GADGET-1");
+    assert.equal(entry.category, "gadgets");
+    assert.equal(entry.group, "general");
+    assert.equal(entry.attrs, undefined);
+    const detail = await call("GET", `/api/products/${entry.id}`);
+    assert.equal(detail.status, 200);
+    assert.equal(detail.body.detail.specGroups[0].title, "Key specifications");
+  });
+
+  it("hides a category from the storefront without taking its products off sale", async () => {
+    const cats = (await call("GET", "/api/admin/categories", { token: adminToken })).body.nodes as { id: string; key: string; name: string; slug: string }[];
+    const g = cats.find((c) => c.key === "gadgets")!;
+    const patch = (visibility: string) =>
+      call("PATCH", `/api/admin/categories/${g.id}`, { token: adminToken, body: { name: g.name, slug: g.slug, visibility } });
+    assert.equal((await patch("hidden")).status, 200);
+    assert.ok(!(await call("GET", "/api/categories")).body.some((c: { key: string }) => c.key === "gadgets"));
+    const entry = (await call("GET", "/api/catalog")).body.find((p: { sku: string }) => p.sku === "GADGET-1");
+    assert.ok(entry, "the product is still on sale");
+    assert.equal((await call("GET", `/api/products/${entry.id}`)).status, 200);
+    assert.equal((await patch("active")).status, 200);
   });
 });
 
