@@ -5,7 +5,7 @@ import { config } from "../config";
 import { get } from "../db";
 import { handler, httpError, param } from "../lib/http";
 import { requireAuth } from "../middleware/auth";
-import { findSellable, listCatalog } from "../storefront/catalog";
+import { adminPictures, findCatalogEntry, findSellable, listCatalog, pictureData } from "../storefront/catalog";
 import { getProductDetail } from "../storefront/data/product-details";
 import { findOrderFor, orderBody, ordersOfUser, placeOrder, quoteVoucher } from "../storefront/orders";
 import type { RequisitionOrder } from "~/types/account";
@@ -27,13 +27,29 @@ storefrontRouter.get(
   handler(() => listCatalog()),
 );
 
+// A product photo as a real image, so lists stay light and browsers can cache it.
+storefrontRouter.get("/media/:id/:n", (req, res, next) => {
+  const data = pictureData(param(req, "id"), Number.parseInt(param(req, "n"), 10));
+  const m = data?.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/);
+  if (!m) return next(httpError(404, "Not found"));
+  res
+    .set({ "Content-Type": m[1]!, "Cache-Control": "public, max-age=31536000, immutable", "Cross-Origin-Resource-Policy": "cross-origin" })
+    .send(Buffer.from(m[2]!, "base64"));
+});
+
 storefrontRouter.get(
   "/products/:id",
   handler((req) => {
     const id = param(req, "id");
     const product = findSellable(id);
     if (!product) throw httpError(404, "Product not found");
-    const detail = getProductDetail(product);
+    const base = getProductDetail(product);
+    // Photos uploaded in admin replace the stand-in views.
+    const adminId = findCatalogEntry(id)?.adminId;
+    const photos = adminId ? adminPictures(adminId, product.name) : [];
+    const detail = photos.length
+      ? { ...base, gallery: photos.map((p, i) => ({ label: i === 0 ? "Cover" : `View ${i + 1}`, src: p.src, alt: p.alt })) }
+      : base;
     const related = detail.related
       .map((rid) => findSellable(rid))
       .filter((p): p is NonNullable<typeof p> => !!p);

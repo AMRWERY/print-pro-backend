@@ -37,13 +37,20 @@ export const createApp = () => {
   app.use(cors({ origin: config.corsOrigins, credentials: false, maxAge: 600 }));
   app.use(compression());
   if (config.production || process.env.NODE_ENV !== "test") app.use(morgan(config.production ? "combined" : "dev"));
-  app.use(express.json({ limit: "1mb" }));
+  // Everything is capped at 1 MB, except product saves from a signed-in admin: those carry their pictures.
+  const smallJson = express.json({ limit: "1mb" });
+  const productJson = express.json({ limit: "4mb" });
+  const isProductWrite = (path: string) => path.startsWith("/api/admin/products");
+  app.use((req, res, next) => (isProductWrite(req.path) ? next() : smallJson(req, res, next)));
 
   // Answers without touching the database, so a host's health check passes while the data is still loading.
   app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
   app.use(gate);
   app.use(authenticate);
+  app.use((req, res, next) =>
+    isProductWrite(req.path) ? (req.user?.role === "admin" ? productJson : smallJson)(req, res, next) : next(),
+  );
   app.use(persistAfterWrite);
   app.use(mountRoutes);
 

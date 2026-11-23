@@ -4,13 +4,16 @@ export class HttpError extends Error {
   constructor(
     public statusCode: number,
     message: string,
+    /** Field name -> what to fix, for forms. */
+    public fields?: Record<string, string>,
   ) {
     super(message);
   }
 }
 
 /** Mirrors the mock server's `createError`, so route code reads the same. */
-export const httpError = (statusCode: number, message: string) => new HttpError(statusCode, message);
+export const httpError = (statusCode: number, message: string, fields?: Record<string, string>) =>
+  new HttpError(statusCode, message, fields);
 
 /** Lets async handlers throw: Express 5 forwards rejected promises, this just types the handler. */
 export const handler =

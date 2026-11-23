@@ -138,7 +138,7 @@ export const queryInventory = (query: InventoryQuery): InventoryResponse => {
   // Tab counts follow the search, category and warehouse filters, but not the tab itself.
   const base = items.filter(
     (i) =>
-      (!needle || [i.name, i.sku, i.ean, i.serial, i.bin].join(" ").toLowerCase().includes(needle)) &&
+      (!needle || [i.name, i.sku, i.serial, i.bin].join(" ").toLowerCase().includes(needle)) &&
       (query.category === "all" || i.category === query.category) &&
       (query.warehouse === "all" || i.warehouse === query.warehouse),
   );
@@ -242,7 +242,7 @@ export const pickerSearch = (q: string): InventoryItem[] => {
   const needle = q.trim().toLowerCase().slice(0, 80);
   if (!needle) return allProducts().slice(0, 6).map(toItem);
   return allProducts()
-    .filter((p) => [p.name, p.sku, p.ean].join(" ").toLowerCase().includes(needle))
+    .filter((p) => [p.name, p.sku].join(" ").toLowerCase().includes(needle))
     .slice(0, 6)
     .map(toItem);
 };

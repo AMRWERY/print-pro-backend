@@ -2,16 +2,97 @@ import type {
   CategoriesResponse,
   Category,
   CategoryInput,
+  CategoryKind,
   CategorySort,
   CategoryVisibility,
 } from "~/types/admin/categories";
 import { persistentList, persistentValue } from "~/db/persist";
+import { allProducts } from "~/data/admin-products";
 
-// The category tree: starts empty, built from the admin Categories screen and persisted in SQLite
-// (see ~/db/persist).
+// The categories: three built-ins to start with, then whatever the admin adds. Persisted in SQLite
+// (see ~/db/persist). The list is flat. Products, coupons and the storefront refer to a category by `key`.
 
-const store = persistentList<Category>("categories", () => []);
+const BUILT_IN: { key: string; kind: CategoryKind; name: string; icon: string }[] = [
+  { key: "printers", kind: "printer", name: "Printers", icon: "lucide:printer" },
+  { key: "copiers", kind: "copier", name: "Photocopiers", icon: "lucide:copy" },
+  { key: "inks-toner", kind: "supply", name: "Inks & Toner", icon: "lucide:droplets" },
+];
+
+const RESERVED_KEYS = ["new", "admin", "api", "search"];
+
+/** A key from the Latin letters and digits of a name; `category-N` when there are none (an Arabic name, say). Always unique in `taken`. */
+export const slugKey = (name: string, taken: ReadonlySet<string>): string => {
+  const base = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  let key = base && !RESERVED_KEYS.includes(base) ? base : "";
+  if (!key) {
+    for (let n = 1; ; n++) if (!taken.has(`category-${n}`)) return `category-${n}`;
+  }
+  for (let n = 2; taken.has(key); n++) key = `${base}-${n}`;
+  return key;
+};
+
+/**
+ * Brings stored categories up to the current shape: every row gets a key and a kind, nothing is nested,
+ * and on first run (or when rows from the older shape are found) the built-ins that are missing are added.
+ * The admin's own edits (names, order, visibility) are kept.
+ */
+export const migrateCategories = (rows: Category[]): Category[] => {
+  const legacy = rows.some((r) => !r.key);
+  const taken = new Set(rows.flatMap((r) => (r.key ? [r.key] : [])));
+  const out: Category[] = rows.map((r) => {
+    if (r.key && r.kind && r.parentId === null) return r;
+    const last = String(r.slug ?? "").split("/").filter(Boolean).pop() ?? r.name;
+    const key = r.key || slugKey(last, taken);
+    taken.add(key);
+    const kind = r.kind ?? BUILT_IN.find((b) => b.key === key)?.kind ?? "general";
+    return { ...r, key, kind, parentId: null };
+  });
+  if (!rows.length || legacy) {
+    for (const b of BUILT_IN) {
+      if (out.some((c) => c.key === b.key)) continue;
+      out.push({
+        id: `c-${b.key}`,
+        key: b.key,
+        kind: b.kind,
+        code: `CAT-${b.key.replace(/[^a-z]/g, "").slice(0, 3).toUpperCase()}-01`,
+        name: b.name,
+        slug: `/${b.key}`,
+        parentId: null,
+        order: out.length,
+        skus: 0,
+        visibility: "active",
+        abstract: "",
+        icon: b.icon,
+        megamenu: true,
+        publicIndexing: true,
+        facetRank: 3,
+        defaultSort: "curated",
+      });
+    }
+  }
+  return out;
+};
+
+const store = persistentList<Category>("categories", () => migrateCategories([]));
+{
+  const migrated = migrateCategories(store);
+  if (migrated.length !== store.length || migrated.some((c, i) => c !== store[i])) store.splice(0, store.length, ...migrated);
+}
 const seq = persistentValue("categories.seq", () => 100);
+
+// --- The registry the rest of the API asks: what is this category called, what icon, what kind? ---
+
+export const categoryKeys = (): string[] => store.map((c) => c.key);
+export const categoryByKey = (key: string): Category | undefined => store.find((c) => c.key === key);
+/** The category's name, or the raw key when it no longer exists. */
+export const categoryLabel = (key: string): string => categoryByKey(key)?.name ?? key;
+export const categoryIcon = (key: string): string => categoryByKey(key)?.icon ?? "lucide:package";
+export const kindOf = (key: string): CategoryKind => categoryByKey(key)?.kind ?? "general";
+export const productCountOf = (key: string): number => allProducts().filter((p) => p.category === key).length;
 
 const siblings = (parentId: string | null) =>
   store
@@ -19,12 +100,13 @@ const siblings = (parentId: string | null) =>
     .sort((a, b) => a.order - b.order);
 
 export const listCategories = (): CategoriesResponse => {
-  const roots = store.filter((c) => c.parentId === null);
+  const nodes = [...store].sort((a, b) => a.order - b.order).map((c) => ({ ...c, skus: productCountOf(c.key) }));
+  const roots = nodes.filter((c) => c.parentId === null);
   return {
-    nodes: [...store].sort((a, b) => a.order - b.order),
+    nodes,
     kpis: {
       masters: roots.length,
-      children: store.length - roots.length,
+      children: nodes.length - roots.length,
       skus: roots.reduce((sum, c) => sum + c.skus, 0),
       unpublished: store.filter((c) => c.visibility !== "active").length,
     },
@@ -121,6 +203,8 @@ export const createCategory = (input: CategoryInput): Category => {
   const category: Category = {
     ...input,
     id,
+    key: slugKey(input.name, new Set(store.map((c) => c.key))),
+    kind: "general",
     code: codeFor(input, id),
     order: siblings(input.parentId).length,
     skus: 0,

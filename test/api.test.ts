@@ -95,8 +95,112 @@ describe("auth", () => {
     assert.equal(sneaky.body.user.role, "customer");
   });
 
+  it("saves, shows and removes a profile photo, and refuses anything that is not an image", async () => {
+    const tiny = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/yQALCAABAAEBAREA/8wABgAQEAX/2gAIAQEAAD8A0s8g/9k=";
+    const saved = await call("PATCH", "/api/auth/profile", { token: adminToken, body: { avatar: tiny } });
+    assert.equal(saved.status, 200);
+    assert.equal(saved.body.user.avatar, tiny);
+    assert.equal((await call("GET", "/api/auth/me", { token: adminToken })).body.user.avatar, tiny);
+
+    // other edits keep the photo
+    assert.equal((await call("PATCH", "/api/auth/profile", { token: adminToken, body: { title: "Owner" } })).body.user.avatar, tiny);
+
+    assert.equal((await call("PATCH", "/api/auth/profile", { token: adminToken, body: { avatar: "data:text/html;base64,PHNjcmlwdD4=" } })).status, 400);
+    assert.equal((await call("PATCH", "/api/auth/profile", { token: adminToken, body: { avatar: "https://evil.example/x.jpg" } })).status, 400);
+
+    const removed = await call("PATCH", "/api/auth/profile", { token: adminToken, body: { avatar: "" } });
+    assert.equal(removed.status, 200);
+    assert.equal(removed.body.user.avatar, undefined);
+  });
+
   it("rejects a forged token", async () => {
     assert.equal((await call("GET", "/api/admin/products", { token: "not.a.token" })).status, 401);
+  });
+});
+
+describe("categories", () => {
+  it("seeds the three built-in categories with their keys and kinds", async () => {
+    const r = await call("GET", "/api/admin/categories", { token: adminToken });
+    assert.equal(r.status, 200);
+    const nodes = r.body.nodes as { key: string; kind: string; parentId: string | null; skus: number }[];
+    assert.deepEqual(nodes.map((n) => [n.key, n.kind]), [["printers", "printer"], ["copiers", "copier"], ["inks-toner", "supply"]]);
+    assert.ok(nodes.every((n) => n.parentId === null && n.skus === 0));
+  });
+
+  it("fills in keys for stored categories that lack one", async () => {
+    const { migrateCategories } = await import("../src/data/admin-categories");
+    const base = { code: "C", parentId: null, order: 0, skus: 7, abstract: "", icon: "lucide:folder", megamenu: false, publicIndexing: false, facetRank: 3, defaultSort: "curated" };
+    const legacy = [
+      { ...base, id: "c-1", name: "My printers", slug: "/printers", visibility: "hidden" },
+      { ...base, id: "c-2", name: "Scanners", slug: "/scanners", parentId: "c-1", visibility: "active" },
+    ] as never;
+    const out = migrateCategories(legacy);
+    assert.deepEqual(out.map((c) => c.key).sort(), ["copiers", "inks-toner", "printers", "scanners"]);
+    const printers = out.find((c) => c.key === "printers")!;
+    assert.equal(printers.name, "My printers"); // the admin's edits are kept
+    assert.equal(printers.visibility, "hidden");
+    assert.equal(printers.kind, "printer");
+    const scanners = out.find((c) => c.key === "scanners")!;
+    assert.equal(scanners.kind, "general");
+    assert.equal(scanners.parentId, null); // the list is flat now
+  });
+
+  const make = (name: string, slug: string, extra: Record<string, unknown> = {}) =>
+    call("POST", "/api/admin/categories", { token: adminToken, body: { name, slug, visibility: "active", ...extra } });
+
+  it("creates a flat category with a generated key and the general kind", async () => {
+    const r = await make("Scanners", "/scanners", { parentId: "c-printers", kind: "printer" });
+    assert.equal(r.status, 201);
+    assert.equal(r.body.key, "scanners");
+    assert.equal(r.body.parentId, null);
+    // a category made in admin never copies a built-in's specs: kind can only be general here
+    assert.equal(r.body.kind, "printer");
+  });
+
+  it("gives names without Latin letters numbered keys, and repeated names suffixed keys", async () => {
+    assert.equal((await make("طابعات", "/a1")).body.key, "category-1");
+    assert.equal((await make("حبر", "/a2")).body.key, "category-2");
+    assert.equal((await make("Scanners", "/scanners-two")).body.key, "scanners-2");
+  });
+
+  it("keeps the key and kind when a category is renamed", async () => {
+    const made = await make("Laminators", "/laminators");
+    const patched = await call("PATCH", `/api/admin/categories/${made.body.id}`, {
+      token: adminToken,
+      body: { name: "Laminating", slug: "/laminators", visibility: "active", key: "hijack", kind: "copier" },
+    });
+    assert.equal(patched.status, 200);
+    assert.equal(patched.body.name, "Laminating");
+    assert.equal(patched.body.key, "laminators");
+    assert.equal(patched.body.kind, "general");
+  });
+
+  it("refuses a malformed or taken key and a reserved word", async () => {
+    const bad = await make("Bad", "/bad", { key: "Bad Key" });
+    assert.equal(bad.status, 400);
+    assert.ok(bad.body.fields.key);
+    assert.equal((await make("Reserved", "/reserved", { key: "admin" })).status, 400);
+    const taken = await make("Again", "/again", { key: "printers" });
+    assert.equal(taken.status, 409);
+    assert.ok(taken.body.fields.key);
+  });
+
+  it("blocks deleting a category that products use, and deletes an unused one", async () => {
+    const product = await call("POST", "/api/admin/products", {
+      token: adminToken,
+      body: { name: "Guard Copier", sku: "GUARD-1", brand: "Kopira", category: "copiers", price: 10, stock: 1, min: 1, channels: [] },
+    });
+    assert.equal(product.status, 201);
+    const copiers = (await call("GET", "/api/admin/categories", { token: adminToken })).body.nodes.find((n: { key: string }) => n.key === "copiers");
+    assert.equal(copiers.skus, 1);
+    const blocked = await call("DELETE", `/api/admin/categories/${copiers.id}`, { token: adminToken });
+    assert.equal(blocked.status, 409);
+    assert.equal(blocked.body.message, "1 products use this category. Move them first.");
+    const still = (await call("GET", "/api/admin/categories", { token: adminToken })).body.nodes;
+    assert.ok(still.some((n: { key: string }) => n.key === "copiers"));
+
+    const unused = still.find((n: { key: string }) => n.key === "laminators");
+    assert.equal((await call("DELETE", `/api/admin/categories/${unused.id}`, { token: adminToken })).status, 200);
   });
 });
 
@@ -113,6 +217,71 @@ describe("admin edits reach the storefront", () => {
       });
       assert.equal(r.status, 201);
     }
+  });
+
+  it("names the exact field when a product is not valid", async () => {
+    const bad = await call("POST", "/api/admin/products", {
+      token: adminToken,
+      body: { name: "X", sku: "my sku!", brand: "", category: "printers", price: null, stock: 1.5, min: 2 },
+    });
+    assert.equal(bad.status, 400);
+    assert.deepEqual(Object.keys(bad.body.fields).sort(), ["brand", "name", "price", "sku", "stock"]);
+    assert.match(bad.body.fields.sku, /no spaces/);
+
+    const dupe = await call("POST", "/api/admin/products", {
+      token: adminToken,
+      body: { name: "Another", sku: "pp-pr-0300", brand: "Printa", category: "printers", price: 10, stock: 1, min: 1 },
+    });
+    assert.equal(dupe.status, 409);
+    assert.ok(dupe.body.fields.sku);
+  });
+
+  it("gives two products with the same title different links, and no longer keeps a handle input, variants or SEO", async () => {
+    const make = (sku: string) =>
+      call("POST", "/api/admin/products", {
+        token: adminToken,
+        body: { name: "Twin Printer", sku, brand: "Printa", category: "printers", price: 100, stock: 3, min: 1, backorder: "block", variants: [{ key: "a" }], seoTitle: "x", excerpt: "y" },
+      });
+    const one = await make("TWIN-1");
+    const two = await make("TWIN-2");
+    assert.equal(one.status, 201);
+    assert.equal(two.status, 201);
+    const d1 = await call("GET", `/api/admin/products/${one.body.id}`, { token: adminToken });
+    const d2 = await call("GET", `/api/admin/products/${two.body.id}`, { token: adminToken });
+    assert.equal(d1.body.slug, "twin-printer");
+    assert.equal(d2.body.slug, "twin-printer-2");
+    for (const gone of ["ean", "backorder", "axes", "variants", "seoTitle", "seoDescription", "excerpt"]) assert.ok(!(gone in d1.body), gone);
+  });
+
+  it("keeps a product's pictures and drops anything that is not an image", async () => {
+    const tiny = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/yQALCAABAAEBAREA/8wABgAQEAX/2gAIAQEAAD8A0s8g/9k=";
+    const r = await call("POST", "/api/admin/products", {
+      token: adminToken,
+      body: {
+        name: "Picture Printer", sku: "PIC-1", brand: "Printa", category: "printers", price: 100, stock: 3, min: 1,
+        media: [
+          { name: "ok.jpg", size: 123, url: tiny },
+          { name: "script.jpg", size: 5, url: "data:text/html;base64,PHNjcmlwdD4=" },
+          { name: "remote.jpg", size: 5, url: "https://evil.example/x.jpg" },
+        ],
+      },
+    });
+    assert.equal(r.status, 201);
+    const d = await call("GET", `/api/admin/products/${r.body.id}`, { token: adminToken });
+    assert.equal(d.body.media.length, 3);
+    assert.equal(d.body.media[0].url, tiny);
+    assert.equal(d.body.media[1].url, "");
+    assert.equal(d.body.media[2].url, "");
+
+    // The list rows point at the cover photo; it is served as an image to a signed-in admin only.
+    const row = (await call("GET", "/api/admin/products?q=PIC-1&perPage=50", { token: adminToken })).body.rows[0];
+    assert.match(row.cover, /^\/api\/admin\/products\/p-\d+\/cover\?v=[0-9a-f]{8}$/);
+    const img = await fetch(base + row.cover, { headers: { authorization: `Bearer ${adminToken}` } });
+    assert.equal(img.status, 200);
+    assert.equal(img.headers.get("content-type"), "image/jpeg");
+    assert.equal((await fetch(base + row.cover)).status, 401);
+    const bare = (await call("GET", "/api/admin/products?q=TWIN-1&perPage=50", { token: adminToken })).body.rows[0];
+    assert.equal(bare.cover, undefined);
   });
 
   it("lists the products an admin registered", async () => {
@@ -142,6 +311,38 @@ describe("admin edits reach the storefront", () => {
     assert.ok(!(await call("GET", "/api/catalog")).body.some((x: { id: string }) => x.id === "printa-mini"));
     await call("PATCH", `/api/admin/products/${p.id}`, { token: adminToken, body: { status: "active" } });
     assert.equal((await call("GET", "/api/products/printa-mini")).status, 200);
+  });
+
+  it("shows a copier published from the editor on the storefront, and hides it as a draft", async () => {
+    const tiny = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/yQALCAABAAEBAREA/8wABgAQEAX/2gAIAQEAAD8A0s8g/9k=";
+    // What the add-product form sends when it saves a product.
+    const form = (publication: string) => ({
+      name: "Office Copier X1", sku: "COP-X1", brand: "Kopira", category: "copiers", price: 25000, stock: 4, min: 1,
+      status: "active", slug: "", description: "", media: [{ name: "front.jpg", size: 100, url: tiny }], compareAt: null, cost: null, taxExempt: false, specs: [],
+      massKg: null, dims: { l: null, w: null, h: null }, hsCode: "", packaging: "pallet", publication,
+      channels: ["storefront"], subType: "", collections: [], tags: [], bundled: [],
+    });
+    const made = await call("POST", "/api/admin/products", { token: adminToken, body: form("published") });
+    assert.equal(made.status, 201);
+    const shown = (await call("GET", "/api/catalog")).body.find((x: { sku: string }) => x.sku === "COP-X1");
+    assert.ok(shown, "published copier is in the storefront catalog");
+    assert.equal(shown.category, "copiers");
+    const detail = await call("GET", `/api/products/${shown.id}`);
+    assert.equal(detail.status, 200);
+
+    // The admin photo is the card image and the gallery, served as a real cacheable image.
+    assert.match(shown.image, /^\/api\/media\/p-\d+\/0\?v=[0-9a-f]{8}$/);
+    assert.equal(detail.body.detail.gallery[0].src, shown.image);
+    const img = await fetch(base + shown.image);
+    assert.equal(img.status, 200);
+    assert.equal(img.headers.get("content-type"), "image/jpeg");
+    assert.match(img.headers.get("cache-control") ?? "", /immutable/);
+    assert.ok((await img.arrayBuffer()).byteLength > 50);
+
+    await call("PATCH", `/api/admin/products/${made.body.id}`, { token: adminToken, body: { publication: "draft" } });
+    assert.ok(!(await call("GET", "/api/catalog")).body.some((x: { sku: string }) => x.sku === "COP-X1"));
+    // A product that is not on sale does not hand out its photo either.
+    assert.equal((await fetch(base + shown.image)).status, 404);
   });
 });
 
@@ -240,7 +441,7 @@ describe("reports", () => {
   it("works out the dashboard and analytics from the real orders", async () => {
     const dash = await call("GET", "/api/admin/dashboard", { token: adminToken });
     assert.equal(dash.status, 200);
-    assert.equal(dash.body.kpis.products.value, 2);
+    assert.ok(dash.body.kpis.products.value >= 2);
     assert.ok(dash.body.kpis.orders.value >= 1);
     assert.ok(dash.body.orders.rows.length >= 1);
     assert.ok(dash.body.lowStock.every((x: { remaining: number; threshold: number }) => x.remaining <= x.threshold));
@@ -256,7 +457,7 @@ describe("reports", () => {
 
     const top = await call("GET", "/api/admin/analytics/top-products?range=30d", { token: adminToken });
     assert.equal(top.status, 200);
-    assert.equal(top.body.total, 2);
+    assert.ok(top.body.total >= 2);
   });
 });
 

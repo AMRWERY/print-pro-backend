@@ -9,7 +9,7 @@ export const notFound: RequestHandler = (_req, res) => {
 export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
   if (res.headersSent) return;
   if (err instanceof HttpError) {
-    res.status(err.statusCode).json({ statusCode: err.statusCode, message: err.message });
+    res.status(err.statusCode).json({ statusCode: err.statusCode, message: err.message, ...(err.fields ? { fields: err.fields } : {}) });
     return;
   }
   // body-parser errors (malformed JSON, payload too large) carry their own status

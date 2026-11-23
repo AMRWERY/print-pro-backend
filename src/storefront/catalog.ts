@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { findProduct as findStaticProduct } from "./data/product-details";
 import { allProducts as adminProducts, savedExtras } from "~/data/admin-products";
 import type { Product as AdminProduct } from "~/types/admin/products";
@@ -32,10 +33,30 @@ const availability = (c: CatalogProduct, stock: number): Pick<CatalogProduct, "d
     ? { dispatch: "factory-order", badge: badges["factory-order"] }
     : { dispatch: c.dispatch, badge: c.badge };
 
+/**
+ * The photos an admin uploaded are stored with the product and served from /api/media/<product>/<n>.
+ * The `v` part changes when the photo does, so browsers can keep each one for a year.
+ */
+const pictureUrl = (adminId: string, n: number, data: string) =>
+  `/api/media/${adminId}/${n}?v=${createHash("md5").update(data).digest("hex").slice(0, 8)}`;
+
+/** The product's uploaded photos, cover first. */
+export const adminPictures = (adminId: string, name: string) =>
+  (savedExtras(adminId)?.media ?? []).flatMap((m, n) => (m.url ? [{ src: pictureUrl(adminId, n, m.url), alt: name }] : []));
+
+/** The stored photo itself (a data URL), only for a product that is on sale. */
+export const pictureData = (adminId: string, n: number): string | undefined =>
+  catalogEntries().some((e) => e.adminId === adminId) ? savedExtras(adminId)?.media?.[n]?.url : undefined;
+
+const withCover = (p: CatalogProduct, adminId: string): CatalogProduct => {
+  const cover = adminPictures(adminId, p.name)[0];
+  return cover ? { ...p, image: cover.src, imageAlt: cover.alt } : p;
+};
+
 const fromAdmin = (a: AdminProduct): CatalogProduct => {
   const extras = savedExtras(a.id);
   const dispatch = a.stock > 0 ? "in-stock" : "factory-order";
-  return {
+  return withCover({
     id: extras?.slug || a.id,
     sku: a.sku,
     category: a.category,
@@ -44,7 +65,7 @@ const fromAdmin = (a: AdminProduct): CatalogProduct => {
     badge: badges[dispatch],
     brand: a.brand,
     name: a.name,
-    blurb: extras?.excerpt || a.spec,
+    blurb: a.spec,
     specs: [a.tag, a.spec, a.brand],
     rating: 0,
     reviews: 0,
@@ -52,7 +73,7 @@ const fromAdmin = (a: AdminProduct): CatalogProduct => {
     lease: 0,
     icon: iconOf[a.category],
     attrs: defaultAttrs[a.category],
-  };
+  }, a.id);
 };
 
 export interface CatalogEntry {
@@ -73,16 +94,15 @@ export const catalogEntries = (): CatalogEntry[] => {
     if (!a) continue;
     linked.add(a.id);
     if (!isListed(a)) continue;
-    const extras = savedExtras(a.id);
     out.push({
-      product: {
+      product: withCover({
         ...c,
         ...availability(c, a.stock),
         name: a.name,
         brand: a.brand,
         price: a.price,
-        blurb: extras?.excerpt || c.blurb,
-      },
+        blurb: c.blurb,
+      }, a.id),
       stock: a.stock,
       adminId: a.id,
     });

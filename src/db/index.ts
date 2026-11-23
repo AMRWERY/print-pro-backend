@@ -51,6 +51,7 @@ const SCHEMA = `
     tier        TEXT NOT NULL DEFAULT 'home',
     title       TEXT,
     phone       TEXT,
+    avatar      TEXT,
     newsletter  INTEGER NOT NULL DEFAULT 0,
     hash        TEXT NOT NULL,
     created_at  TEXT NOT NULL
@@ -93,6 +94,9 @@ export const openDb = (): Promise<Client> => {
       `);
     }
     await c.executeMultiple(SCHEMA);
+    // Accounts made before profile photos existed: add the column.
+    const userCols = await c.execute("PRAGMA table_info(users)");
+    if (!userCols.rows.some((r) => r.name === "avatar")) await c.execute("ALTER TABLE users ADD COLUMN avatar TEXT");
     if (upgrade) {
       await c.executeMultiple(`
         UPDATE docs SET ver = 1 WHERE ver = 0;

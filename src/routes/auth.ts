@@ -24,6 +24,8 @@ interface UserRow {
   tier: string;
   title: string | null;
   phone: string | null;
+  /** Profile photo: a small image as a data URL. */
+  avatar: string | null;
   newsletter: number;
   hash: string;
   created_at: string;
@@ -38,6 +40,7 @@ const publicUser = (u: UserRow) => ({
   tier: u.tier,
   title: u.title ?? undefined,
   phone: u.phone ?? undefined,
+  avatar: u.avatar ?? undefined,
   newsletter: !!u.newsletter,
   createdAt: u.created_at,
 });
@@ -55,7 +58,7 @@ const q = {
   insert: stmt(
     "INSERT INTO users (id, email, role, name, studio, tier, newsletter, hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ),
-  update: stmt("UPDATE users SET name = ?, studio = ?, title = ?, phone = ?, newsletter = ? WHERE id = ?"),
+  update: stmt("UPDATE users SET name = ?, studio = ?, title = ?, phone = ?, avatar = ?, newsletter = ? WHERE id = ?"),
   setHash: stmt("UPDATE users SET hash = ? WHERE id = ?"),
   insertToken: stmt("INSERT INTO reset_tokens (token_hash, user_id, expires) VALUES (?, ?, ?)"),
   token: stmt("SELECT user_id, expires FROM reset_tokens WHERE token_hash = ?"),
@@ -177,6 +180,12 @@ authRouter.patch(
         studio: z.string().trim().max(120).optional(),
         title: z.string().trim().max(120).optional(),
         phone: z.string().trim().max(40).optional(),
+        // A small photo as a data URL; an empty string removes it.
+        avatar: z
+          .string()
+          .max(120_000)
+          .regex(/^(data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+)?$/, "That is not a usable image")
+          .optional(),
         newsletter: z.boolean().optional(),
       }),
       req.body,
@@ -187,6 +196,7 @@ authRouter.patch(
       patch.studio ?? cur.studio,
       patch.title ?? cur.title,
       patch.phone ?? cur.phone,
+      patch.avatar === undefined ? cur.avatar : patch.avatar || null,
       (patch.newsletter ?? !!cur.newsletter) ? 1 : 0,
       cur.id,
     );
