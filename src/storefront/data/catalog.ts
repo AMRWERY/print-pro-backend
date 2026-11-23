@@ -106,7 +106,7 @@ const make = (s: Seed): CatalogProduct => ({
   sku: s.sku,
   category: s.category,
   dispatch: s.dispatch,
-  group: groups[s.category],
+  group: groups[s.category as keyof typeof groups],
   badge: badges[s.dispatch],
   brand: s.brand,
   name: s.name,
@@ -116,7 +116,7 @@ const make = (s: Seed): CatalogProduct => ({
   reviews: s.reviews,
   price: s.price,
   lease: s.lease ?? 0,
-  icon: icons[s.category],
+  icon: icons[s.category as keyof typeof icons],
   attrs: s.attrs,
 });
 

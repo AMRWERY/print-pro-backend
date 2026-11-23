@@ -96,8 +96,8 @@ export const queryProducts = (query: ProductsQuery): ProductsResponse => {
       hold: store.filter((p) => p.status === "hold").length,
     },
     presets: {
-      a3Copiers: store.filter((p) => p.category === "copiers" && p.spec.startsWith("A3")).length,
-      supplies: store.filter((p) => p.category === "inks-toner").length,
+      a3Copiers: store.filter((p) => kindOf(p.category) === "copier" && p.spec.startsWith("A3")).length,
+      supplies: store.filter((p) => kindOf(p.category) === "supply").length,
       depleted,
     },
   };

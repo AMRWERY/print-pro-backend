@@ -10,7 +10,7 @@ import {
 import { persistentList, persistentValue } from "~/db/persist";
 import { stockStateOf } from "~/data/product-meta";
 import type { Product, ProductCategory } from "~/types/admin/products";
-import { parseCategoryFilter } from "~/data/admin-categories";
+import { kindOf, parseCategoryFilter } from "~/data/admin-categories";
 import type {
   AdjustInput,
   InventoryFilter,
@@ -61,7 +61,7 @@ const locate = (p: Product): { warehouse: Warehouse; bin: string } => {
   const override = placementOf(p.id);
   if (override) return { warehouse: override.warehouse, bin: override.bin };
   const n = numberOf(p.id);
-  const warehouse: Warehouse = p.category === "copiers" ? "GIZ-02" : n % 5 === 0 ? "ALX-01" : "CAI-01";
+  const warehouse: Warehouse = kindOf(p.category) === "copier" ? "GIZ-02" : n % 5 === 0 ? "ALX-01" : "CAI-01";
   return { warehouse, bin: `${binPrefix(p.category)}-${String((n % 9) + 1).padStart(2, "0")}` };
 };
 

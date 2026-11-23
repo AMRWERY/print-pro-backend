@@ -1,6 +1,7 @@
 import { allOrders, placedOrderOf } from "~/data/admin-orders";
 import { allCustomers } from "~/data/admin-customers";
 import { allProducts } from "~/data/admin-products";
+import { kindOf } from "~/data/admin-categories";
 import type { OrderRow, OrderStage } from "~/types/admin/orders";
 import type { Product } from "~/types/admin/products";
 import type {
@@ -38,11 +39,11 @@ const lowStockOf = (p: Product): LowStockItem => {
     status: critical ? "critical" : "depleting",
     remaining: p.stock,
     threshold: p.min,
-    unit: p.unit === "pack" ? "packs" : p.category === "inks-toner" ? "cartridges" : "units",
+    unit: p.unit === "pack" ? "packs" : kindOf(p.category) === "supply" ? "cartridges" : "units",
     note: "priority",
     noteValue: p.stock === 0 ? "Out of stock" : "Below reorder point",
     action:
-      p.category === "inks-toner" ? "restockToner" : critical && p.category === "copiers" ? "emergencySpares" : "restockMachines",
+      kindOf(p.category) === "supply" ? "restockToner" : critical && kindOf(p.category) === "copier" ? "emergencySpares" : "restockMachines",
   };
 };
 
@@ -64,9 +65,9 @@ const allocationOf = (o: OrderRow) => {
 const divisionOf = (p: Product | undefined, title: string): TopProduct["division"] =>
   !p
     ? "printers"
-    : p.category === "copiers"
+    : kindOf(p.category) === "copier"
       ? "copiers"
-      : p.category === "printers"
+      : kindOf(p.category) !== "supply"
         ? "printers"
         : /toner|drum/i.test(title)
           ? "toner"
@@ -113,9 +114,9 @@ export const dashboardSummary = (): DashboardSummary => {
           division: divisionOf(p, l.title),
           unitValue: l.unitPrice,
           volume: l.quantity,
-          volumeUnit: l.unit === "pack" ? "packs" : p?.category === "inks-toner" ? "cartridges" : "units",
+          volumeUnit: l.unit === "pack" ? "packs" : p && kindOf(p.category) === "supply" ? "cartridges" : "units",
           revenue: l.total,
-          qa: p?.category === "inks-toner" ? "GENUINE" : "100% TESTED",
+          qa: p && kindOf(p.category) === "supply" ? "GENUINE" : "100% TESTED",
           icon: l.icon,
         });
       }

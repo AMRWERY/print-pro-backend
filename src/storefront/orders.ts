@@ -59,7 +59,7 @@ export type OrderBody = z.infer<typeof orderBody>;
 
 interface PricedLine {
   item: OrderItem;
-  group: "printer" | "copier" | "ink";
+  group: "printer" | "copier" | "ink" | "general";
   stock: number;
   adminId: string;
   unit: "item" | "pack";
