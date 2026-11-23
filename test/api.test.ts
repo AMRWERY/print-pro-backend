@@ -519,6 +519,8 @@ describe("live categories reach products, coupons, reports and the storefront", 
   it("serves visible categories to the storefront with product counts, kinds and no specs for general ones", async () => {
     const all = (await call("GET", "/api/categories")).body as { key: string; kind: string; count: number; name: string }[];
     assert.equal(all.find((c) => c.key === "printers")?.kind, "printer");
+    // the built-ins come with a description for the shop's category cards
+    for (const key of ["printers", "copiers", "inks-toner"]) assert.ok((all.find((c) => c.key === key) as { abstract: string }).abstract.length > 20, key);
     const gadgets = all.find((c) => c.key === "gadgets")!;
     assert.equal(gadgets.kind, "general");
     assert.equal(gadgets.count, 1);

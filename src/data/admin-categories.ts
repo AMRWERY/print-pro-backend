@@ -13,10 +13,10 @@ import { couponCountUsing } from "~/data/admin-coupons";
 // The categories: three built-ins to start with, then whatever the admin adds. Persisted in SQLite
 // (see ~/db/persist). The list is flat. Products, coupons and the storefront refer to a category by `key`.
 
-const BUILT_IN: { key: string; kind: CategoryKind; name: string; icon: string }[] = [
-  { key: "printers", kind: "printer", name: "Printers", icon: "lucide:printer" },
-  { key: "copiers", kind: "copier", name: "Photocopiers", icon: "lucide:copy" },
-  { key: "inks-toner", kind: "supply", name: "Inks & Toner", icon: "lucide:droplets" },
+const BUILT_IN: { key: string; kind: CategoryKind; name: string; icon: string; abstract: string }[] = [
+  { key: "printers", kind: "printer", name: "Printers", icon: "lucide:printer", abstract: "Inkjet, laser and large-format printers for the home, the office and the print room." },
+  { key: "copiers", kind: "copier", name: "Photocopiers", icon: "lucide:copy", abstract: "A4 and A3 multifunction photocopiers, from small-office machines to production systems." },
+  { key: "inks-toner", kind: "supply", name: "Inks & Toner", icon: "lucide:droplets", abstract: "Genuine ink, toner and drum units, matched to your printer or photocopier model." },
 ];
 
 const RESERVED_KEYS = ["new", "admin", "api", "search"];
@@ -66,7 +66,7 @@ export const migrateCategories = (rows: Category[]): Category[] => {
         order: out.length,
         skus: 0,
         visibility: "active",
-        abstract: "",
+        abstract: b.abstract,
         icon: b.icon,
         megamenu: true,
         publicIndexing: true,
